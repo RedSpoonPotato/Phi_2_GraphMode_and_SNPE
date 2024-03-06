@@ -164,8 +164,13 @@ void layernorm_Nd_32f(
     const float eps
 ) {
     int num_vectors = 1;
+    int vec_len = tensor_dims.end()[-1];
     for (int i = 0; i < tensor_dims.size() - 1; i++) { num_vectors *= tensor_dims[i]; }
-    
+    for (int i = 0; i < num_vectors; i++) {
+        layernorm_1d_32f(
+            &tensor[i*weight_len], weight, bias, &out[i*weight_len],
+            vec_len, weight_len, eps);
+    }
 }
 
 void PhiAttention(
@@ -181,12 +186,14 @@ void PhiAttention(
     const float* k_proj_bias,
     const float* v_proj_weights, const std::vector<uint32_t>& v_proj_weights_dims,
     const float* v_proj_bias,
-    const float* q_layernorm_weights, const std::vector<uint32_t>& q_layernorm_weights_dims,
+    const float* q_layernorm_weights, const int q_layernorm_weights_len,
     const float* q_layernorm_bias,
-    const float* k_layernorm_weights, const std::vector<uint32_t>& k_layernorm_weights_dims,
+    const float* k_layernorm_weights, const int k_layernorm_weights_len,
     const float* k_layernorm_bias,
+    const float eps,
+    const int num_heads, const int head_dim, const int num_kv_heads,
 
-
+    /* outputs */
     float* attn_output, std::vector<uint32_t>& attn_output_dims,
     float* past_key_value, std::vector<uint32_t>& past_key_value_dims
 ) {
@@ -210,7 +217,35 @@ void PhiAttention(
         hidden_states, v_proj_weights, v_proj_bias, value_states_buff,
         hidden_states_dims, v_proj_weights_dims, value_states_dims);
     
+    // careful for using the same buffer as input & output
+    layernorm_Nd_32f(
+        query_states_buff, q_layernorm_weights, q_layernorm_bias, query_states_buff,
+        query_states_dims, q_layernorm_weights_len, eps);
+    layernorm_Nd_32f(
+        key_states_buff, k_layernorm_weights, k_layernorm_bias, key_states_buff,
+        key_states_dims, k_layernorm_weights_len, eps);
+    
+    // reshape
+    query_states_dims.resize(4);
+    query_states_dims[0] = bsz;
+    query_states_dims[1] = q_len;
+    query_states_dims[2] = num_heads;
+    query_states_dims[3] = head_dim;
+    key_states_dims.resize(4);
+    key_states_dims[0] = bsz;
+    key_states_dims[1] = q_len;
+    key_states_dims[2] = num_kv_heads;
+    key_states_dims[3] = head_dim;
+    value_states_dims.resize(4);
+    value_states_dims[0] = bsz;
+    value_states_dims[1] = q_len;
+    value_states_dims[2] = num_kv_heads;
+    value_states_dims[3] = head_dim;
 
+    // tranpose
+    
+
+    
 
 }
 
