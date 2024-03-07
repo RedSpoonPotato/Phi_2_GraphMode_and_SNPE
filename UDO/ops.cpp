@@ -1,6 +1,6 @@
 #include <vector>
 #include <iostream>
-#include <assert.h>
+#include <cassert>
 #include <cmath>
 
 #define BATCH_SIZE 1
@@ -160,7 +160,7 @@ void layernorm_1d_32f(
 
 void layernorm_Nd_32f(
     const float* tensor, const float* weight, const float* bias, float* out,
-    const std::vector<uint32_t> tensor_dims, const int weight_len,
+    const std::vector<uint32_t>& tensor_dims, const int weight_len,
     const float eps
 ) {
     int num_vectors = 1;
@@ -172,6 +172,113 @@ void layernorm_Nd_32f(
             vec_len, weight_len, eps);
     }
 }
+
+void transpose(
+    const float* tensor, float* out, const std::vector<uint32_t>& perm,
+    const std::vector<uint32_t>& tensor_dims, std::vector<uint32_t>& out_dims
+) {
+    // not safe to do inplace
+    assert(tensor != out);
+    assert(tensor_dims.size() == 4);
+    // set out_dims
+    out_dims.resize(4);
+    for (uint32_t i = 0; i < 4; i++) {
+        out_dims[i] = tensor_dims[perm[i]];
+    }
+    // code
+    std::vector<int> old_indices(4);
+    std::vector<int> offsets(4);
+    offsets[0] = tensor_dims[0];
+    offsets[1] = offsets[0] * tensor_dims[1];
+    offsets[2] = offsets[1] * tensor_dims[2];
+    offsets[3] = offsets[2] * tensor_dims[3];
+
+    int num_elements = offsets[3];
+    std::vector<int> new_indices(4);
+    for (int i = 0; i < num_elements; i++) {
+        // get old indices
+        uint32_t index = i;
+        for (int j = 0; j < 4; j++) {
+            old_indices[j] = index % tensor_dims[j];
+            index /= tensor_dims[j];
+        }
+        // get new indices
+        for (int j = 0; j < 4; j++) {
+            new_indices[j] = old_indices[perm[j]];
+        }
+        // write data
+        uint32_t offset = 0;
+        for (uint32_t j = 0; j < 4; j++) {
+            offset = offset * out_dims[j] + new_indices[j];
+        }
+        out[offset] = tensor[i];
+    }
+}
+
+void truncate(
+    const float* input, const std::vector<uint32_t>& input_dims,
+    float* output, std::vector<uint32_t>& output_dims,
+    const std::vector<int>& dims_to_split,
+    const std::vector<int>& values,
+    const std::vector<int>& colon_lefts
+) {
+    // assertions
+    const uint32_t rank = input_dims.size();
+    assert(rank <= 4); // assume 4d or less
+    assert(values.size() <= rank);
+    assert(dims_to_split.size() == values.size() == colon_lefts.size());
+    for (int i = 0; i < values.size(); i++) {
+        assert(values[i] < input_dims[dims_to_split[i]]);
+    }
+    // indice computation
+    int indice_start[] = {0,0,0,0};
+    int indice_end[]   = {1,1,1,1}; // including
+    for (int i = 0; i < rank; i++) { indice_end[i] = input_dims[i] - 1; }
+    for (int i = 0; i < values.size(); i++) {
+        if (colon_lefts[i]) { indice_end[dims_to_split[i]] = values[i] - 1; }
+        else                { indice_start[dims_to_split[i]] = values[i]; }
+    }
+    // writing output
+    unsigned long long elements_written = 0;
+    unsigned long long dim_offsets[4];
+    dim_offsets[0] = 1;
+    dim_offsets[1] = input_dims[0] * dim_offsets[0];
+    dim_offsets[2] = input_dims[1] * dim_offsets[1];
+    dim_offsets[3] = input_dims[2] * dim_offsets[2];
+    for (int a = indice_start[0]; a <= indice_end[0]; a++) {
+        for (int b = indice_start[1]; b <= indice_end[1]; b++) {
+            for (int c = indice_start[2]; c <= indice_end[2]; c++) {
+                for (int d = indice_start[3]; d <= indice_end[3]; d++) {
+                    output[elements_written] = input[
+                        d + 
+                        c*dim_offsets[1] + 
+                        b*dim_offsets[2] +
+                        a*dim_offsets[3]];
+                    elements_written++;
+                }
+            }
+        }
+    }
+    // writing output_dims
+    for (int i = 0; i < input_dims.size(); i++) {
+        output_dims[i] = indice_end[i] - indice_start[i];
+    }
+}
+
+// IMPORTANT NOTE: IGNORING FOR NOW WHEN SEQ_LEN GETS BIG
+// void rotary_emb(
+//     const float* x, const std::vector<uint32_t>& x_dims,
+//     const int seq_len,
+//     const float* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
+//     const float* cos_cached, const std::vector<uint32_t>& cos_cached_dims,
+//     float* sin, std::vector<uint32_t>& sin_dims,
+//     float* cos, std::vector<uint32_t>& cos_dims,
+// ) {
+//     int max_seq_len_cached = 2048; // temp solution
+//     assert(seq_len <= max_seq_len_cached);
+    
+
+// }
 
 void PhiAttention(
     /* inputs */
@@ -193,6 +300,8 @@ void PhiAttention(
     const float eps,
     const int num_heads, const int head_dim, const int num_kv_heads,
 
+    /* init params */
+    const int layer_idx,
     /* outputs */
     float* attn_output, std::vector<uint32_t>& attn_output_dims,
     float* past_key_value, std::vector<uint32_t>& past_key_value_dims
@@ -242,8 +351,39 @@ void PhiAttention(
     value_states_dims[2] = num_kv_heads;
     value_states_dims[3] = head_dim;
 
-    // tranpose
+    // transpose
+    // cant use same buffers (unless transpose() uses a temporary buffer)
+    float query_states_buff_2[QUERY_STATES_BUFF_SIZE];
+    float key_states_buff_2[QUERY_STATES_BUFF_SIZE];
+    float value_states_buff_2[QUERY_STATES_BUFF_SIZE];
+    std::vector<uint32_t> temp_dims;
+    std::vector<uint32_t> perm = {0, 2, 1, 3};
+    transpose(
+        query_states_buff, query_states_buff_2, 
+        perm, 
+        query_states_dims, temp_dims);
+    query_states_dims = temp_dims;
+    transpose(
+        key_states_buff, key_states_buff_2, 
+        perm, 
+        key_states_dims, temp_dims);
+    key_states_dims = temp_dims;
+    transpose(
+        value_states_buff, value_states_buff_2, 
+        perm, 
+        value_states_dims, temp_dims);
+    value_states_dims = temp_dims;
     
+    // Cache
+    // past_key_value_old: tensor(32, 2, seq_len, something)
+    int kv_seq_len = key_states_dims.end()[-2];
+    if (past_key_value_old_dims[0] > layer_idx) { // not first run
+        kv_seq_len += past_key_value_old_dims.end()[-2]; // seq_len
+    }
+
+
+
+
 
     
 
