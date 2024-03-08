@@ -223,6 +223,7 @@ void transpose(
     }
 }
 
+// not input-to-output safe
 void truncate(
     const float* input, const std::vector<uint32_t>& input_dims,
     float* output, std::vector<uint32_t>& output_dims,
@@ -235,6 +236,7 @@ void truncate(
     assert(rank <= 4); // assume 4d or less
     assert(values.size() <= rank);
     assert(dims_to_split.size() == values.size() == colon_lefts.size());
+    assert(input != output);
     for (int i = 0; i < values.size(); i++) {
         assert(values[i] < input_dims[dims_to_split[i]]);
     }
@@ -307,7 +309,7 @@ void rotary_emb(
 // cannot do in place
 void gather(
     const float* x, const std::vector<uint32_t>& x_dims,
-    const std::vector<int> indices,
+    const std::vector<int>& indices,
     float* out, std::vector<uint32_t>& out_dims
 ) {
     // offset computation
@@ -339,6 +341,7 @@ void concat(
     float* out, std::vector<uint32_t>& out_dims
 ) {
     // assertions
+    assert((out != x1) && (out != x2));
     assert(x1_dims.size() == x2_dims.size());
     int rank = x1_dims.size();
     assert(axis < rank);
@@ -358,9 +361,9 @@ void concat(
     for (int i = 1; i < rank; i++) {
         x1_4d_dims[i] = x1_dims[i];
         x2_4d_dims[i] = x2_dims[i];
-        x1_dim_offsets[i]  = x1_dim_offsets[i-1]  * x1_dims[-1];
-        x2_dim_offsets[i]  = x2_dim_offsets[i-1]  * x2_dims[-1];
-        out_dim_offsets[i] = out_dim_offsets[i-1] * out_dims[-1];
+        x1_dim_offsets[i]  = x1_dim_offsets[i-1]  * x1_dims[i-1];
+        x2_dim_offsets[i]  = x2_dim_offsets[i-1]  * x2_dims[i-1];
+        out_dim_offsets[i] = out_dim_offsets[i-1] * out_dims[i-1];
     }
     unsigned long long x1_tot_elems = x1_dim_offsets[rank-1] * x1_dims[rank-1];
     unsigned long long x2_tot_elems = x2_dim_offsets[rank-1] * x2_dims[rank-1];
@@ -406,7 +409,7 @@ void concat(
     }
 }
 
-// uses an internal buffer for now
+// uses an internal buffer for now (be careful if you remove)
 // could optimize by writing directly to out rather than using truncate()
 void rotate_half(
     const float* x, const std::vector<uint32_t>& x_dims,
@@ -439,13 +442,15 @@ void rotate_half(
 }
 
 
+/* NOTE: b/c q and q_embed to same buffer in PhiAttetion, we will create a additional buffer
+            so that the computation is correct, and we can mirror the python code. */
 // are using an internal buffer
 void apply_rotary_pos_emb(
     const float* q, const std::vector<uint32_t>& q_dims,
     const float* k, const std::vector<uint32_t>& k_dims,
     const float* cos, const std::vector<uint32_t>& cos_dims,
     const float* sin, const std::vector<uint32_t>& sin_dims,
-    const std::vector<int> position_ids, const int unsqueeze_dim,
+    const std::vector<int>& position_ids, const int unsqueeze_dim,
     float* q_embed, std::vector<uint32_t>& q_embed_dims,
     float* k_embed, std::vector<uint32_t>& k_embed_dims
 ) {
@@ -457,15 +462,62 @@ void apply_rotary_pos_emb(
     gather(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
     cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
     sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1);
-    
+    // computing embedding
+    // assume the last 2 dims are the same size for q and cos
+    assert(q_dims.end()[-1] == cos_buff_dims.end()[-1] == k_dims.end()[-1]);
+    assert(q_dims.end()[-2] == cos_buff_dims.end()[-2] == k_dims.end()[-2]);
+    int q_rank = q_dims.size();
+    assert(q_rank < 4);
+    unsigned long long q_dim_offsets[4] = {1, 1, 1, 1};
+    for (int i = 1; i < q_rank; i++) {
+        q_dim_offsets[i] = q_dim_offsets[i-1] * q_dims[-1];
+    }
+    assert(q_dims[0] == k_dims[0]); // we can adjust if this needs to be false
+    assert(q_dims[1] == k_dims[1]); // would need to create another collection of for loops
+    float q_temp_buff[QUERY_STATES_BUFF_SIZE];
+    float k_temp_buff[QUERY_STATES_BUFF_SIZE];
+    for (int i = 0; i < q_dims[0]; i++) {
+        for (int j = 0; j < q_dims[1]; j++) {
+            mul_32f(
+                &(q[i*q_dim_offsets[3] + j*q_dim_offsets[2]]), cos_buff, 
+                q_temp_buff, cos_buff_dims);
+            mul_32f(
+                &(k[i*q_dim_offsets[3] + j*q_dim_offsets[2]]), cos_buff,
+                k_temp_buff, cos_buff_dims);
+        }
+    }
+    rotate_half(q, q_dims, q_embed, q_embed_dims); // this might cause problems with the outdims
+    rotate_half(k, k_dims, k_embed, k_embed_dims); // rotate_half() intializes dims
+    for (int i = 0; i < q_dims[0]; i++) {
+        for (int j = 0; j < q_dims[1]; j++) {
+            mul_32f(
+                &(q_embed[i*q_dim_offsets[3] + j*q_dim_offsets[2]]), sin_buff, 
+                q_embed, sin_buff_dims);
+            mul_32f(
+                &(k_embed[i*q_dim_offsets[3] + j*q_dim_offsets[2]]), sin_buff, 
+                k_embed, sin_buff_dims);
+        }
+    }
+    add_32f(q_embed, q_temp_buff, q_embed, q_embed_dims);
+    add_32f(k_embed, k_temp_buff, k_embed, k_embed_dims);
 }
+
+void copy(const float* ten1, float* out, const std::vector<uint32_t>& dims) {
+    uint32_t num_elem = 1;
+    for (uint32_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+    for (uint32_t i = 0; i < num_elem; i++) {
+        out[i] = ten1[i];
+    }
+}
+
 
 void PhiAttention(
     /* inputs */
     const float* hidden_states, const std::vector<uint32_t>& hidden_states_dims,
     const float* attention_mask, const std::vector<uint32_t>& attention_mask_dims,
-    const float* position_ids, const std::vector<uint32_t>& position_ids_dims,
-    const float* past_key_value_old, const std::vector<uint32_t>& past_key_value_old_dims,
+    const std::vector<int>& position_ids,
+    const float* old_past_keys, const std::vector<uint32_t>& old_past_keys_dims,
+    const float* old_past_values, const std::vector<uint32_t>& old_past_values_dims,
     /* weights */
     const float* q_proj_weights, const std::vector<uint32_t>& q_proj_weights_dims,
     const float* q_proj_bias,
@@ -487,7 +539,8 @@ void PhiAttention(
     int rotary_emb_dim,
     /* outputs */
     float* attn_output, std::vector<uint32_t>& attn_output_dims,
-    float* past_key_value, std::vector<uint32_t>& past_key_value_dims
+    float* past_keys, std::vector<uint32_t>& past_keys_dims,
+    float* past_values, std::vector<uint32_t>& past_values_dims
 ) {
     int bsz = hidden_states_dims[0];
     int q_len = hidden_states_dims[1];
@@ -558,10 +611,10 @@ void PhiAttention(
     value_states_dims = temp_dims;
     
     // Cache
-    // past_key_value_old: tensor(32, 2, seq_len, something)
+    // old_past_keys_dims: (seq_len, something), (seq_len, something)
     int kv_seq_len = key_states_dims.end()[-2];
-    if (past_key_value_old_dims[0] > layer_idx) { // not first run
-        kv_seq_len += past_key_value_old_dims.end()[-2]; // seq_len
+    if (old_past_keys_dims.size() > 0) { // not first run
+        kv_seq_len += old_past_keys_dims.end()[-2]; // seq_len MAKE SURE THIS IS RIGHT
     }
 
     // partial rotary embedding
@@ -594,27 +647,52 @@ void PhiAttention(
         query_pass_buff, query_pass_buff_dims, 
         std::vector<int> {int(query_states_dims.size())-1},
         std::vector<int> {rotary_emb_dim},
-        std::vector<int> {0}
-        );
+        std::vector<int> {0});
     truncate(
         key_states_buff_2, key_states_dims,
         key_rot_buff, key_rot_buff_dims, 
         std::vector<int> {int(key_states_dims.size())-1},
         std::vector<int> {rotary_emb_dim},
-        std::vector<int> {1}
-        );
+        std::vector<int> {1});
     truncate(
         key_states_buff_2, key_states_dims,
         key_pass_buff, key_pass_buff_dims, 
         std::vector<int> {int(key_states_dims.size())-1},
         std::vector<int> {rotary_emb_dim},
-        std::vector<int> {0}
-        );
+        std::vector<int> {0});
     // applying rot_pos-emb
+    // [batch_size, seq_length, num_heads, head_dim // partial_rotary_factor]
+    apply_rotary_pos_emb(
+    query_rot_buff, query_rot_buff_dims, key_rot_buff, key_rot_buff_dims,
+    cos_buff, cos_buff_dims, sin_buff, sin_buff_dims, 
+    position_ids, 1,
+    query_rot_buff, query_rot_buff_dims, key_rot_buff, key_rot_buff_dims);
+    
+    // concatting rot and pass
+    concat(
+        query_rot_buff, query_rot_buff_dims,
+        query_pass_buff, query_pass_buff_dims, 
+        query_rot_buff_dims.size()-1, 
+        query_states_buff, query_states_dims);
+    concat(
+    key_rot_buff, key_rot_buff_dims,
+    key_pass_buff, key_pass_buff_dims, 
+    key_rot_buff_dims.size()-1, 
+    key_states_buff, key_states_dims);
 
-
-
-
+    // updating cache
+    // past_key_value_old: (seq_len, something), (seq_len, something)
+    concat(
+        old_past_keys, old_past_keys_dims, key_states_buff, key_states_dims,
+        key_states_dims.size()-2, 
+        past_keys, past_keys_dims);
+    concat(
+        old_past_values, old_past_values_dims, value_states_buff, value_states_dims,
+        value_states_dims.size()-2, 
+        past_values, past_values_dims);
+    copy(past_keys, key_states_buff, past_keys_dims);
+    copy(past_values, value_states_buff, past_values_dims);
+    
 
 
 
