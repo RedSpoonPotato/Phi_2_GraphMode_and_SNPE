@@ -5,8 +5,16 @@
 
 #define BATCH_SIZE 1
 #define MAX_SEQ_LEN 2048
-#define FEATURE_SIZE 2560
-#define QUERY_STATES_BUFF_SIZE BATCH_SIZE*MAX_SEQ_LEN*FEATURE_SIZE
+#define HIDDEN_SIZE 2560
+#define QUERY_STATES_BUFF_SIZE  BATCH_SIZE*MAX_SEQ_LEN*HIDDEN_SIZE
+
+// partial_rotary_factor: 0.4
+// head_dim = hidden_size // num_attention_heads i.e. (2560 / 32) = 80
+// sin_cos(param:dim) = head_dim * partial_rotary_factor = 80 * .4 = 32
+#define SIN_COS_DIM 32
+#define SIN_COS_MAX_SEQ_LEN 2048 // a temporary solution
+#define SIN_COS_BUFF_SIZE  SIN_COS_DIM*SIN_COS_MAX_SEQ_LEN
+
 
 /*
 This is a repo of commmon operatiosns that need to be implemented for the phi-2 LLM. THey should be dynamic, but also efficient
@@ -232,7 +240,7 @@ void truncate(
     }
     // indice computation
     int indice_start[] = {0,0,0,0};
-    int indice_end[]   = {1,1,1,1}; // including
+    int indice_end[]   = {0,0,0,0}; // including
     for (int i = 0; i < rank; i++) { indice_end[i] = input_dims[i] - 1; }
     for (int i = 0; i < values.size(); i++) {
         if (colon_lefts[i]) { indice_end[dims_to_split[i]] = values[i] - 1; }
@@ -251,7 +259,7 @@ void truncate(
                 for (int d = indice_start[3]; d <= indice_end[3]; d++) {
                     output[elements_written] = input[
                         d + 
-                        c*dim_offsets[1] + 
+                        c*dim_offsets[1] +
                         b*dim_offsets[2] +
                         a*dim_offsets[3]];
                     elements_written++;
@@ -266,19 +274,135 @@ void truncate(
 }
 
 // IMPORTANT NOTE: IGNORING FOR NOW WHEN SEQ_LEN GETS BIG
-// void rotary_emb(
-//     const float* x, const std::vector<uint32_t>& x_dims,
-//     const int seq_len,
-//     const float* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
-//     const float* cos_cached, const std::vector<uint32_t>& cos_cached_dims,
-//     float* sin, std::vector<uint32_t>& sin_dims,
-//     float* cos, std::vector<uint32_t>& cos_dims,
-// ) {
-//     int max_seq_len_cached = 2048; // temp solution
-//     assert(seq_len <= max_seq_len_cached);
-    
+void rotary_emb(
+    const float* x, const std::vector<uint32_t>& x_dims,
+    const int seq_len,
+    const float* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
+    const float* cos_cached, const std::vector<uint32_t>& cos_cached_dims,
+    float* sin, std::vector<uint32_t>& sin_dims,
+    float* cos, std::vector<uint32_t>& cos_dims
+) {
+    assert(seq_len <= SIN_COS_MAX_SEQ_LEN); // TEMP solution
+    for (int i = 0; i < sin_cached_dims.size(); i++) {
+        // idk if this needs to be true, but if it does not, change code below
+        assert(sin_cached_dims[i] == cos_cached_dims[i]);
+    }
+    std::vector<int> dims_to_split = {0};
+    std::vector<int> values = {seq_len};
+    std::vector<int> colon_lefts = {1};
+    truncate(
+        cos_cached, cos_cached_dims, cos, cos_dims, 
+        dims_to_split, // outer dim
+        values,
+        colon_lefts
+    );
+    truncate(
+        sin_cached, sin_cached_dims, sin, sin_dims, 
+        dims_to_split, // outer dim
+        values,
+        colon_lefts
+    );
+}
 
-// }
+void gather(
+    const float* x, const std::vector<uint32_t>& x_dims,
+    const std::vector<int> indices,
+    float* out, std::vector<uint32_t>& out_dims
+) {
+    // offset computation
+    int rank = x_dims.size();
+    assert(rank <= 4);
+    unsigned long long dim_offsets[4] = {1, 1, 1, 1};
+    for (int i = 1; i < rank; i++) {
+        dim_offsets[i] = dim_offsets[i-1] * x_dims[-1];
+    }
+    unsigned long long offset = dim_offsets[rank-1];
+    // writing to out
+    for (int i = 0; i < indices.size(); i++) {
+        for (int j = 0; j < offset; j++) {
+            out[i*offset + j] = x[indices[i]*offset + j];
+        }
+    }
+    // writing out_dims
+    out_dims = std::vector<uint32_t>();
+    out_dims.push_back(indices.size());
+    for (int i = 1; i < rank; i++) {
+        out_dims.push_back(x_dims[i]);
+    }
+}
+
+void concat(
+    const float* x1, const std::vector<uint32_t>& x1_dims,
+    const float* x2, const std::vector<uint32_t>& x2_dims,
+    const int axis,
+    float* out, std::vector<uint32_t>& out_dims
+) {
+    // assertions
+    assert(x1_dims.size() == x2_dims.size());
+    int rank = x1_dims.size();
+    for (int i = 0; i < rank; i++) {
+        if (i != axis) { assert(x1_dims[i] == x2_dims[i]); }
+    }
+    assert(rank <= 4);
+    // writing out_dims
+    out_dims = x1_dims;
+    out_dims[axis] += x2_dims[axis];
+    // offset computations
+    uint32_t x1_4d_dims[4]                = {1, 1, 1, 1};
+    uint32_t x2_4d_dims[4]                = {1, 1, 1, 1};
+    unsigned long long x1_dim_offsets[4]  = {1, 1, 1, 1};
+    unsigned long long x2_dim_offsets[4]  = {1, 1, 1, 1};
+    unsigned long long out_dim_offsets[4] = {1, 1, 1, 1};
+    for (int i = 1; i < rank; i++) {
+        x1_4d_dims[i] = x1_dims[i];
+        x2_4d_dims[i] = x2_dims[i];
+        x1_dim_offsets[i]  = x1_dim_offsets[i-1]  * x1_dims[-1];
+        x2_dim_offsets[i]  = x2_dim_offsets[i-1]  * x2_dims[-1];
+        out_dim_offsets[i] = out_dim_offsets[i-1] * out_dims[-1];
+    }
+    unsigned long long x1_tot_elems = x1_dim_offsets[rank-1] * x1_dims[rank-1];
+    unsigned long long x2_tot_elems = x2_dim_offsets[rank-1] * x2_dims[rank-1];
+    // writing x1 to out
+    for (int a = 0; a < x1_4d_dims[0]; a++) {
+        for (int b = 0; b < x1_4d_dims[1]; b++) {
+            for (int c = 0; c < x1_4d_dims[2]; c++) {
+                for (int d = 0; d < x1_4d_dims[3]; d++) {
+                    out[
+                        d + 
+                        c*out_dim_offsets[1] + 
+                        b*out_dim_offsets[2] +
+                        a*out_dim_offsets[3]] 
+                    = x1[
+                        d + 
+                        c*x1_dim_offsets[1] + 
+                        b*x1_dim_offsets[2] +
+                        a*x1_dim_offsets[3]];
+                }
+            }
+        }
+    }
+    // writing x2 to out
+    unsigned long long x2_write_offset = x1_dims[axis] * out_dim_offsets[axis];
+    for (int a = 0; a < x2_4d_dims[0]; a++) {
+        for (int b = 0; b < x2_4d_dims[1]; b++) {
+            for (int c = 0; c < x2_4d_dims[2]; c++) {
+                for (int d = 0; d < x2_4d_dims[3]; d++) {
+                    out[
+                        d + 
+                        c*out_dim_offsets[1] + 
+                        b*out_dim_offsets[2] +
+                        a*out_dim_offsets[3] + 
+                        x2_write_offset]
+                    = x1[
+                        d + 
+                        c*x2_dim_offsets[1] + 
+                        b*x2_dim_offsets[2] +
+                        a*x2_dim_offsets[3]];
+                }
+            }
+        }
+    }
+}
 
 void PhiAttention(
     /* inputs */
@@ -302,6 +426,9 @@ void PhiAttention(
 
     /* init params */
     const int layer_idx,
+    const float* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
+    const float* cos_cached, const std::vector<uint32_t>& cos_cached_dims,
+    int rotary_emb_dim,
     /* outputs */
     float* attn_output, std::vector<uint32_t>& attn_output_dims,
     float* past_key_value, std::vector<uint32_t>& past_key_value_dims
@@ -380,6 +507,57 @@ void PhiAttention(
     if (past_key_value_old_dims[0] > layer_idx) { // not first run
         kv_seq_len += past_key_value_old_dims.end()[-2]; // seq_len
     }
+
+    // partial rotary embedding
+    float sin_buff[SIN_COS_BUFF_SIZE];
+    float cos_buff[SIN_COS_BUFF_SIZE];
+    std::vector<uint32_t> sin_buff_dims;
+    std::vector<uint32_t> cos_buff_dims;
+    rotary_emb(
+        value_states_buff_2, value_states_dims, kv_seq_len,
+        sin_cached, sin_cached_dims, cos_cached, cos_cached_dims,
+        sin_buff, sin_buff_dims, cos_buff, cos_buff_dims);
+    //rotations
+    float query_rot_buff[QUERY_STATES_BUFF_SIZE];
+    float query_pass_buff[QUERY_STATES_BUFF_SIZE];
+    float key_rot_buff[QUERY_STATES_BUFF_SIZE];
+    float key_pass_buff[QUERY_STATES_BUFF_SIZE];
+    std::vector<uint32_t> query_rot_buff_dims;
+    std::vector<uint32_t> query_pass_buff_dims;
+    std::vector<uint32_t> key_rot_buff_dims;
+    std::vector<uint32_t> key_pass_buff_dims;
+    truncate(
+        query_states_buff_2, query_states_dims,
+        query_rot_buff, query_rot_buff_dims, 
+        std::vector<int> {int(query_states_dims.size())-1},
+        std::vector<int> {rotary_emb_dim},
+        std::vector<int> {1}
+        );
+    truncate(
+        query_states_buff_2, query_states_dims,
+        query_pass_buff, query_pass_buff_dims, 
+        std::vector<int> {int(query_states_dims.size())-1},
+        std::vector<int> {rotary_emb_dim},
+        std::vector<int> {0}
+        );
+    truncate(
+        key_states_buff_2, key_states_dims,
+        key_rot_buff, key_rot_buff_dims, 
+        std::vector<int> {int(key_states_dims.size())-1},
+        std::vector<int> {rotary_emb_dim},
+        std::vector<int> {1}
+        );
+    truncate(
+        key_states_buff_2, key_states_dims,
+        key_pass_buff, key_pass_buff_dims, 
+        std::vector<int> {int(key_states_dims.size())-1},
+        std::vector<int> {rotary_emb_dim},
+        std::vector<int> {0}
+        );
+    // applying rot_pos-emb
+
+
+
 
 
 
