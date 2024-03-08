@@ -304,6 +304,7 @@ void rotary_emb(
     );
 }
 
+// cannot do in place
 void gather(
     const float* x, const std::vector<uint32_t>& x_dims,
     const std::vector<int> indices,
@@ -340,6 +341,7 @@ void concat(
     // assertions
     assert(x1_dims.size() == x2_dims.size());
     int rank = x1_dims.size();
+    assert(axis < rank);
     for (int i = 0; i < rank; i++) {
         if (i != axis) { assert(x1_dims[i] == x2_dims[i]); }
     }
@@ -402,6 +404,60 @@ void concat(
             }
         }
     }
+}
+
+// uses an internal buffer for now
+// could optimize by writing directly to out rather than using truncate()
+void rotate_half(
+    const float* x, const std::vector<uint32_t>& x_dims,
+    float* out, std::vector<uint32_t>& out_dims
+) {
+    // internal buffers
+    float x1[QUERY_STATES_BUFF_SIZE];
+    float x2[QUERY_STATES_BUFF_SIZE];
+    std::vector<uint32_t> x1_dims, x2_dims;
+
+    int x1_len = x_dims.end()[-1] / 2;
+    std::vector<int> dims_to_split = {(int)x_dims.size()-1};
+    std::vector<int> values = {x1_len};
+    std::vector<int> colon_left = {1};
+    std::vector<int> colon_right = {0};
+    truncate(
+        x, x_dims, x1, x1_dims, dims_to_split,
+        values, colon_left
+    );
+    truncate(
+        x, x_dims, x2, x2_dims, dims_to_split,
+        values, colon_right
+    );
+    // negate x2
+    unsigned long long x2_size = 1;
+    for (auto i : x2_dims) { x2_size *= i; }
+    for (int i = 0; i < x2_size; i++) {x2[i] = -1 * x2[i];}
+    // concat
+    concat(x1, x1_dims, x2, x2_dims, int(x1_dims.size()-1), out, out_dims);
+}
+
+
+// are using an internal buffer
+void apply_rotary_pos_emb(
+    const float* q, const std::vector<uint32_t>& q_dims,
+    const float* k, const std::vector<uint32_t>& k_dims,
+    const float* cos, const std::vector<uint32_t>& cos_dims,
+    const float* sin, const std::vector<uint32_t>& sin_dims,
+    const std::vector<int> position_ids, const int unsqueeze_dim,
+    float* q_embed, std::vector<uint32_t>& q_embed_dims,
+    float* k_embed, std::vector<uint32_t>& k_embed_dims
+) {
+    // buffers prbably dont need to be this big
+    float cos_buff[SIN_COS_BUFF_SIZE];
+    float sin_buff[SIN_COS_BUFF_SIZE];
+    std::vector<uint32_t> cos_buff_dims, sin_buff_dims;
+    gather(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
+    gather(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
+    cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
+    sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1);
+    
 }
 
 void PhiAttention(
