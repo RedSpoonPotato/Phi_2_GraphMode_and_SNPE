@@ -2,6 +2,7 @@
 #include <iostream>
 #include <cassert>
 #include <cmath>
+#include <algorithm>
 
 #define BATCH_SIZE 1
 #define MAX_SEQ_LEN 2048
@@ -15,6 +16,8 @@
 #define SIN_COS_MAX_SEQ_LEN 2048 // a temporary solution
 #define SIN_COS_BUFF_SIZE  SIN_COS_DIM*SIN_COS_MAX_SEQ_LEN
 
+#define ATTN_WEIGHTS_SIZE MAX_SEQ_LEN*MAX_SEQ_LEN*32
+ // this will probably scale to be bigger that QUERY_STATES_BUFF_SIZE
 
 /*
 This is a repo of commmon operatiosns that need to be implemented for the phi-2 LLM. THey should be dynamic, but also efficient
@@ -63,6 +66,76 @@ void div_32f(const float* ten1, const float* ten2, float* out, const std::vector
     }
 }
 
+// can add tensors of different shapes assuming they are compatible
+void add_32f_general(
+    const float* ten1, const float* ten2, float* out, 
+    const std::vector<uint32_t>& ten1_dims, const std::vector<uint32_t>& ten2_dims,
+    std::vector<uint32_t>& out_dims
+) {
+    assert(ten1_dims.size() == ten2_dims.size());
+    // compute out_dims
+    out_dims = std::vector<uint32_t>();
+    for (size_t i = 0; i < ten1_dims.size(); ++i) {
+        assert(ten1_dims[i] == 1 || ten2_dims[i] == 1 || ten1_dims[i] == ten2_dims[i]);
+        out_dims.push_back(std::max(ten1_dims[i], ten2_dims[i]));
+    }
+    // Perform tensor addition
+    size_t total_elements = 1;
+    for (size_t i = 0; i < out_dims.size(); ++i) {
+        total_elements *= out_dims[i];
+    }
+    for (size_t i = 0; i < total_elements; ++i) {
+        size_t index = i;
+        size_t ten1_index = 0;
+        size_t ten2_index = 0;
+        for (int dim = out_dims.size() - 1; dim >= 0; --dim) {
+            size_t dim_size = out_dims[dim];
+            size_t ten1_dim_size = ten1_dims[dim];
+            size_t ten2_dim_size = ten2_dims[dim];
+            size_t ten1_coord = index % dim_size;
+            size_t ten2_coord = index % dim_size;
+            ten1_index += ten1_coord * (ten1_dim_size == 1 ? 0 : 1);
+            ten2_index += ten2_coord * (ten2_dim_size == 1 ? 0 : 1);
+            index /= dim_size;
+        }
+        out[i] = ten1[ten1_index] + ten2[ten2_index];
+    }
+}
+
+void mul_32f_general(
+    const float* ten1, const float* ten2, float* out, 
+    const std::vector<uint32_t>& ten1_dims, const std::vector<uint32_t>& ten2_dims,
+    std::vector<uint32_t>& out_dims
+) {
+    assert(ten1_dims.size() == ten2_dims.size());
+    // compute out_dims
+    out_dims = std::vector<uint32_t>();
+    for (size_t i = 0; i < ten1_dims.size(); ++i) {
+        assert(ten1_dims[i] == 1 || ten2_dims[i] == 1 || ten1_dims[i] == ten2_dims[i]);
+        out_dims.push_back(std::max(ten1_dims[i], ten2_dims[i]));
+    }
+    // Perform tensor addition
+    size_t total_elements = 1;
+    for (size_t i = 0; i < out_dims.size(); ++i) {
+        total_elements *= out_dims[i];
+    }
+    for (size_t i = 0; i < total_elements; ++i) {
+        size_t index = i;
+        size_t ten1_index = 0;
+        size_t ten2_index = 0;
+        for (int dim = out_dims.size() - 1; dim >= 0; --dim) {
+            size_t dim_size = out_dims[dim];
+            size_t ten1_dim_size = ten1_dims[dim];
+            size_t ten2_dim_size = ten2_dims[dim];
+            size_t ten1_coord = index % dim_size;
+            size_t ten2_coord = index % dim_size;
+            ten1_index += ten1_coord * (ten1_dim_size == 1 ? 0 : 1);
+            ten2_index += ten2_coord * (ten2_dim_size == 1 ? 0 : 1);
+            index /= dim_size;
+        }
+        out[i] = ten1[ten1_index] * ten2[ten2_index];
+    }
+}
 
 // vertical expansion
 void flatten_along_row(std::vector<uint32_t>& dims) {
@@ -94,7 +167,6 @@ void flatten_along_col(std::vector<uint32_t>& dims) {
 
 void matmul_Nd_32f(const float* ten1, const float* ten2, float* out, 
                    std::vector<uint32_t> dims1, std::vector<uint32_t> dims2) {
-
     assert(dims1.end()[-1] == dims2.end()[-2]); // rule of matrix multiplication
     // use ints, as uint32_t's seem to segfault if they go negative
     // flatten
@@ -116,6 +188,23 @@ void matmul_Nd_32f(const float* ten1, const float* ten2, float* out,
         }
     }
 }
+
+// makes certain assumptions to set output dimensions
+void matmul_Nd_32f_constrained(const float* ten1, const float* ten2, float* out, 
+                   std::vector<uint32_t> dims1, std::vector<uint32_t> dims2,
+                   std::vector<uint32_t>& out_dims) {
+
+    assert(dims1.end()[-1] == dims2.end()[-2]); // rule of matrix multiplication
+    // set out_dims (assuming additional contraints below)
+    assert(dims1.size() == dims2.size());
+    int rank = dims1.size();
+    out_dims = std::vector<uint32_t>();
+    for (int i = 0; i < rank - 1; i++) { out_dims.push_back(dims1[i]); }
+    out_dims.push_back(dims2.end()[-1]);
+    // calling matmul
+    matmul_Nd_32f(ten1, ten2, out, dims1, dims2);
+}
+
 
 // set bias to nullptr if None
 void linear_Nd_32f(const float* ten, const float* weight, const float* bias, float* out,
@@ -510,6 +599,33 @@ void copy(const float* ten1, float* out, const std::vector<uint32_t>& dims) {
     }
 }
 
+// code taken mostly from Softmax.cpp in SNPE example code
+// assumed to be done on most inner dimensions
+void softmax(const float* tensor, float* out, const std::vector<uint32_t>& dims) {
+    const uint32_t rank = dims.size();
+    const size_t depth = dims[rank - 1];
+    uint32_t tensorLength = 1;
+    for(uint32_t i = 0; i < rank; i++) { tensorLength *= dims[i]; }
+    const size_t numPixels = tensorLength/depth;
+    for( size_t pix = 0; pix < numPixels; ++pix ) {
+        const float* in = (float*)tensor+pix*depth;
+        float* out_temp = (float*)out+pix*depth;
+        // find the max element for max subtraction
+        float maxElt = std::numeric_limits<float>::lowest();
+        for( size_t i = 0; i < depth; ++i ) { maxElt = std::max( maxElt, in[i] ); }
+        // compute exponentiations
+        float expSum = 0.0;
+        for( size_t i = 0; i < depth; ++i ) {
+            const float ei = expf( in[i] - maxElt );
+            out_temp[i] = ei;
+            expSum += ei;
+        }
+        // normalize
+        for( size_t i = 0; i < depth; ++i ) { out_temp[i] = out_temp[i] / expSum; }
+    }
+}
+
+
 
 void PhiAttention(
     /* inputs */
@@ -525,13 +641,14 @@ void PhiAttention(
     const float* k_proj_bias,
     const float* v_proj_weights, const std::vector<uint32_t>& v_proj_weights_dims,
     const float* v_proj_bias,
-    const float* q_layernorm_weights, const int q_layernorm_weights_len,
-    const float* q_layernorm_bias,
-    const float* k_layernorm_weights, const int k_layernorm_weights_len,
-    const float* k_layernorm_bias,
-    const float eps,
+    // const float* q_layernorm_weights, const int q_layernorm_weights_len,
+    // const float* q_layernorm_bias,
+    // const float* k_layernorm_weights, const int k_layernorm_weights_len,
+    // const float* k_layernorm_bias,
+    // const float eps,
     const int num_heads, const int head_dim, const int num_kv_heads,
-
+    const float* dense_weights, const std::vector<uint32_t>& dense_weights_dims,
+    const float* dense_bias,
     /* init params */
     const int layer_idx,
     const float* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
@@ -563,29 +680,20 @@ void PhiAttention(
         hidden_states_dims, v_proj_weights_dims, value_states_dims);
     
     // careful for using the same buffer as input & output
-    layernorm_Nd_32f(
-        query_states_buff, q_layernorm_weights, q_layernorm_bias, query_states_buff,
-        query_states_dims, q_layernorm_weights_len, eps);
-    layernorm_Nd_32f(
-        key_states_buff, k_layernorm_weights, k_layernorm_bias, key_states_buff,
-        key_states_dims, k_layernorm_weights_len, eps);
+    // aparently, we dont use them
+    // layernorm_Nd_32f(
+    //     query_states_buff, q_layernorm_weights, q_layernorm_bias, query_states_buff,
+    //     query_states_dims, q_layernorm_weights_len, eps);
+    // layernorm_Nd_32f(
+    //     key_states_buff, k_layernorm_weights, k_layernorm_bias, key_states_buff,
+    //     key_states_dims, k_layernorm_weights_len, eps);
     
     // reshape
-    query_states_dims.resize(4);
-    query_states_dims[0] = bsz;
-    query_states_dims[1] = q_len;
-    query_states_dims[2] = num_heads;
-    query_states_dims[3] = head_dim;
-    key_states_dims.resize(4);
-    key_states_dims[0] = bsz;
-    key_states_dims[1] = q_len;
-    key_states_dims[2] = num_kv_heads;
-    key_states_dims[3] = head_dim;
-    value_states_dims.resize(4);
-    value_states_dims[0] = bsz;
-    value_states_dims[1] = q_len;
-    value_states_dims[2] = num_kv_heads;
-    value_states_dims[3] = head_dim;
+    query_states_dims = std::vector<uint32_t>{
+        (uint32_t)bsz, (uint32_t)q_len, (uint32_t)num_heads, (uint32_t)head_dim};
+    key_states_dims = std::vector<uint32_t>{
+        (uint32_t)bsz, (uint32_t)q_len, (uint32_t)num_kv_heads, (uint32_t)head_dim};
+    value_states_dims = key_states_dims;
 
     // transpose
     // cant use same buffers (unless transpose() uses a temporary buffer)
@@ -682,25 +790,151 @@ void PhiAttention(
 
     // updating cache
     // past_key_value_old: (seq_len, something), (seq_len, something)
-    concat(
-        old_past_keys, old_past_keys_dims, key_states_buff, key_states_dims,
-        key_states_dims.size()-2, 
-        past_keys, past_keys_dims);
-    concat(
-        old_past_values, old_past_values_dims, value_states_buff, value_states_dims,
-        value_states_dims.size()-2, 
-        past_values, past_values_dims);
-    copy(past_keys, key_states_buff, past_keys_dims);
-    copy(past_values, value_states_buff, past_values_dims);
+
+    // COMMENT BACK IN
+    // concat(
+    //     old_past_keys, old_past_keys_dims, key_states_buff, key_states_dims,
+    //     key_states_dims.size()-2, 
+    //     past_keys, past_keys_dims);
+    // concat(
+    //     old_past_values, old_past_values_dims, value_states_buff_2, value_states_dims,
+    //     value_states_dims.size()-2, 
+    //     past_values, past_values_dims);
+    // copy(past_keys, key_states_buff, past_keys_dims);
+    // copy(past_values, value_states_buff, past_values_dims);
+
+    // dont have to implement repeat_kv b/c num_atten_heads / num_kv_heads = 32/32 = 1
+
+    /*
+    could split the model right here if you want-------------------
+    but wouldn't that lead to ineffcieny due to execute() in SNPE having 
+    to load the weights twice?
+    */
+
+    /*
+    1, seq, 32, 80 --> 1, 32, seq, 80 (querys)
+    1, seq, 32, 80 --> 1, 32, seq, 80 --> 1, 32, 80, seq (keys)
+    result: 1, 32, seq, seq
+    ------LATER after masking-----------
+    attn_output = attn_weights(1, 32, seq, seq) x value_states(1, 32, seq, 80)
+    attn_output = (1, 32, seq, 80)
+    */
+
+    // matmul
+    transpose(
+        key_states_buff, key_states_buff_2, 
+        std::vector<uint32_t> {0, 1, 3, 2},
+        key_states_dims, temp_dims
+        );
+    key_states_dims = temp_dims;
+    // NOTE: not sure how big the buffer needs to be
+    unsigned long long key_states_size = 1;
+    for (auto i : key_states_dims) {key_states_size *= i;}
+    assert(key_states_size < ATTN_WEIGHTS_SIZE);
+    float attn_weights[ATTN_WEIGHTS_SIZE];
+    std::vector<uint32_t> attn_weights_dims;
+    matmul_Nd_32f_constrained(
+        query_states_buff, key_states_buff_2, attn_weights,
+        query_states_dims, key_states_dims, attn_weights_dims);
     
-
-
-
-
+    // masking
+    add_32f_general(
+        attn_weights, attention_mask, attn_output,
+        attn_weights_dims, attention_mask_dims, attn_output_dims);
     
+    // softmax
+    softmax(attn_output, attn_weights, attn_output_dims);
+    attn_weights_dims = attn_output_dims;
 
+    // matmul (to attn_output)
+    matmul_Nd_32f_constrained(
+        attn_weights, value_states_buff, attn_output,
+        attn_weights_dims, value_states_dims, attn_output_dims);
+
+    // tranpose (to attn_output)
+    transpose(
+        attn_output, attn_weights, 
+        std::vector<uint32_t> {0, 2, 1, 3},
+        attn_output_dims, attn_weights_dims);
+
+    // reshape (attn_output)
+    attn_weights_dims = std::vector<uint32_t> {
+        (uint32_t)bsz, 
+        (uint32_t)q_len, 
+        HIDDEN_SIZE};
+    
+    // dense layer
+    linear_Nd_32f(
+        attn_weights, dense_weights, dense_bias, attn_output, 
+        attn_weights_dims, dense_weights_dims, attn_output_dims);
 }
 
+#define q_LEN 11
 int main() {
+    /* inputs */
+    float hidden_states[BATCH_SIZE * q_LEN * HIDDEN_SIZE];
+    std::vector<uint32_t> hidden_states_dims {BATCH_SIZE, q_LEN, HIDDEN_SIZE};
+    float attention_mask[BATCH_SIZE * q_LEN * q_LEN];
+    std::vector<uint32_t> attention_mask_dims {BATCH_SIZE, 1, q_LEN, q_LEN};
+    std::vector<int> position_ids;
+    for (int i = 0; i < q_LEN; i++) { position_ids.push_back(i); }
+    float *old_past_keys, *old_past_values;
+    old_past_keys = old_past_values = NULL;
+    std::vector<uint32_t> old_past_keys_dims, old_past_values_dims;
+
+    /* weights */
+    // projs (same for all)
+    float proj_weights[HIDDEN_SIZE * HIDDEN_SIZE];
+    float proj_bias[HIDDEN_SIZE];
+    std::vector<uint32_t> proj_weights_dims = {HIDDEN_SIZE, HIDDEN_SIZE};
+    // params
+    const int num_heads = 32;
+    const int head_dim = HIDDEN_SIZE / num_heads;
+    const int num_kv_heads = 32;
+
+    /* init params */
+    float sin_cached[SIN_COS_BUFF_SIZE];
+    std::vector<uint32_t> sin_cached_dims {MAX_SEQ_LEN, 32};
+    float cos_cached[SIN_COS_BUFF_SIZE];
+    std::vector<uint32_t> cos_cached_dims {MAX_SEQ_LEN, 32};
+    int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
+    int layer_idx = 0;
+
+    /* outputs */
+    float attn_output[QUERY_STATES_BUFF_SIZE];
+    std::vector<uint32_t> attn_output_dims;
+    float past_keys[QUERY_STATES_BUFF_SIZE];
+    std::vector<uint32_t> past_keys_dims;
+    float past_values[QUERY_STATES_BUFF_SIZE];
+    std::vector<uint32_t> past_values_dims;
+
+        
+PhiAttention(
+    /* inputs */
+    hidden_states,  hidden_states_dims,
+    attention_mask, attention_mask_dims,
+    position_ids,
+     old_past_keys,  old_past_keys_dims,
+     old_past_values,  old_past_values_dims,
+    /* weights */
+     proj_weights,  proj_weights_dims,
+     proj_bias,
+     proj_weights,  proj_weights_dims,
+     proj_bias,
+     proj_weights,  proj_weights_dims,
+     proj_bias,
+    num_heads, head_dim, num_kv_heads,
+     proj_weights,  proj_weights_dims,
+     proj_bias,
+    /* init params */
+    layer_idx,
+     sin_cached,  sin_cached_dims,
+     cos_cached,  cos_cached_dims,
+    rotary_emb_dim,
+    /* outputs */
+    attn_output, attn_output_dims,
+    past_keys, past_keys_dims,
+    past_values, past_values_dims
+);
 
 }
