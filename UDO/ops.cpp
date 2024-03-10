@@ -483,8 +483,8 @@ void concat(
     out_dims = x1_dims;
     out_dims[axis] += x2_dims[axis];
     // offset computations
-    uint32_t x1_4d_dims[4]                = {1, 1, 1, 1};
-    uint32_t x2_4d_dims[4]                = {1, 1, 1, 1};
+    std::vector<uint32_t> x1_4d_dims = {1, 1, 1, 1};
+    std::vector<uint32_t> x2_4d_dims = {1, 1, 1, 1};
     unsigned long long x1_dim_offsets[4]  = {1, 1, 1, 1};
     unsigned long long x2_dim_offsets[4]  = {1, 1, 1, 1};
     unsigned long long out_dim_offsets[4] = {1, 1, 1, 1};
@@ -497,8 +497,18 @@ void concat(
         x2_dim_offsets[i]  = x2_dim_offsets[i+1]  * x2_dims[i+1];
         out_dim_offsets[i] = out_dim_offsets[i+1] * out_dims[i+1];
     }
-    unsigned long long x1_tot_elems = x1_dim_offsets[0] * x1_dims[0];
-    unsigned long long x2_tot_elems = x2_dim_offsets[0] * x2_dims[0];
+    // unsigned long long x1_tot_elems = x1_dim_offsets[0] * x1_dims[0];
+    // unsigned long long x2_tot_elems = x2_dim_offsets[0] * x2_dims[0];
+    // printV("\tout_dims", out_dims);
+    // printV("\tx1_4d_dims", x1_4d_dims);
+    // for (int i = 0; i < 4; i++) {
+    //     std::cout << x1_dim_offsets[i] << " ";
+    // }
+    // std::cout << "out_dim_offsets:\n";
+    // for (int i = 0; i < 4; i++) {
+    //     std::cout << out_dim_offsets[i] << " ";
+    // }
+    // std::cout << "\twriting x1 to out\n";
     // writing x1 to out
     for (int a = 0; a < x1_4d_dims[0]; a++) {
         for (int b = 0; b < x1_4d_dims[1]; b++) {
@@ -518,6 +528,7 @@ void concat(
             }
         }
     }
+    std::cout << "\twriting x2 to out\n";
     // writing x2 to out
     unsigned long long x2_write_offset = x1_dims[axis] * out_dim_offsets[axis];
     for (int a = 0; a < x2_4d_dims[0]; a++) {
@@ -530,7 +541,7 @@ void concat(
                         b*out_dim_offsets[1] +
                         a*out_dim_offsets[0] + 
                         x2_write_offset]
-                    = x1[
+                    = x2[
                         d + 
                         c*x2_dim_offsets[2] + 
                         b*x2_dim_offsets[1] +
@@ -599,9 +610,9 @@ void apply_rotary_pos_emb(
     // float sin_buff[SIN_COS_BUFF_SIZE];
     float* sin_buff = (float*)malloc(SIN_COS_BUFF_SIZE * sizeof(float));
     std::vector<uint32_t> cos_buff_dims, sin_buff_dims;
-    std::cout << "\tCalling gather()\n";
+    std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     gather(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
-    std::cout << "\tCalling gather()\n";
+    std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     gather(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
     cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
     sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1);
@@ -663,7 +674,7 @@ void apply_rotary_pos_emb(
     free(sin_buff);
 }
 
-void copy(const float* ten1, float* out, const std::vector<uint32_t>& dims) {
+void copyTensor(const float* ten1, float* out, const std::vector<uint32_t>& dims) {
     uint32_t num_elem = 1;
     for (uint32_t i = 0; i < dims.size(); i++) { num_elem *= i; }
     for (uint32_t i = 0; i < num_elem; i++) {
@@ -843,6 +854,7 @@ void PhiAttention(
     if (old_past_keys_dims.size() > 0) { // not first run
         kv_seq_len += old_past_keys_dims.end()[-2]; // seq_len MAKE SURE THIS IS RIGHT
     }
+    std::cout << "kv_seq_len:" << kv_seq_len << "\n";
 
     // partial rotary embedding
     // float sin_buff[SIN_COS_BUFF_SIZE];
@@ -859,6 +871,7 @@ void PhiAttention(
         sin_buff, sin_buff_dims, cos_buff, cos_buff_dims);
     std::cout << "finished calling rot_emb()\n";
     printV("sin_buff_dims", sin_buff_dims);
+    printV("cos_buff_dims", cos_buff_dims);
     //rotations
     // float query_rot_buff[QUERY_STATES_BUFF_SIZE];
     float* query_rot_buff = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
@@ -928,16 +941,34 @@ void PhiAttention(
     // past_key_value_old: (seq_len, something), (seq_len, something)
 
     // COMMENT BACK IN
-    // concat(
-    //     old_past_keys, old_past_keys_dims, key_states_buff, key_states_dims,
-    //     key_states_dims.size()-2, 
-    //     past_keys, past_keys_dims);
-    // concat(
-    //     old_past_values, old_past_values_dims, value_states_buff_2, value_states_dims,
-    //     value_states_dims.size()-2, 
-    //     past_values, past_values_dims);
-    // copy(past_keys, key_states_buff, past_keys_dims);
-    // copy(past_values, value_states_buff, past_values_dims);
+    std::cout << "--Going to Cache--\n";
+    printV("old_past_keys", old_past_keys_dims);
+    printV("key_states_dims", key_states_dims);
+    if (old_past_keys_dims.size() == 0) { 
+        std::cout << "first run\n";
+        // first run
+        copyTensor(key_states_buff, past_keys, key_states_dims);
+        past_keys_dims = key_states_dims;
+        copyTensor(value_states_buff_2, past_values, value_states_dims);
+        past_values_dims = value_states_dims;
+    }
+    else { 
+        // not first run
+        std::cout << "not first run\n";
+        std::cout << "calling first concat\n";
+        concat(
+            old_past_keys, old_past_keys_dims, key_states_buff, key_states_dims,
+            key_states_dims.size()-2, 
+            past_keys, past_keys_dims);
+        std::cout << "calling second concat\n";
+        concat(
+            old_past_values, old_past_values_dims, value_states_buff_2, value_states_dims,
+            value_states_dims.size()-2, 
+            past_values, past_values_dims);
+        std::cout << "calling first copyTensor()\n";
+        copyTensor(past_keys, key_states_buff, past_keys_dims);
+        copyTensor(past_values, value_states_buff, past_values_dims);
+    }
 
     // dont have to implement repeat_kv b/c num_atten_heads / num_kv_heads = 32/32 = 1
 
@@ -987,10 +1018,10 @@ void PhiAttention(
     printV("post masking attn_weights(attn_output)", attn_output_dims);
     
     // softmax
-    // std::cout << "Calling softmax\n";
-    // mySoftmax(attn_output, attn_weights, attn_output_dims);
-    // attn_weights_dims = attn_output_dims;
-    // printV("post softmaxing attn_weights", attn_weights_dims);
+    std::cout << "Calling softmax\n";
+    mySoftmax(attn_output, attn_weights, attn_output_dims);
+    attn_weights_dims = attn_output_dims;
+    printV("post softmaxing attn_weights", attn_weights_dims);
 
     // matmul (to attn_output)
     std::cout << "Calling 2nd matmul\n";
@@ -1037,7 +1068,9 @@ void PhiAttention(
 }
 
 
-#define q_LEN 2000
+
+
+#define q_LEN 11
 
 // temp function, remove later
 // int main() {
@@ -1074,8 +1107,10 @@ int main() {
     std::vector<uint32_t> attention_mask_dims {BATCH_SIZE, 1, q_LEN, q_LEN};
     std::vector<int> position_ids;
     for (int i = 0; i < q_LEN; i++) { position_ids.push_back(i); }
-    float *old_past_keys, *old_past_values;
-    old_past_keys = old_past_values = NULL;
+    // float *old_past_keys, *old_past_values;
+    // old_past_keys = old_past_values = NULL;
+    float *old_past_keys = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
+    float *old_past_values = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
     std::vector<uint32_t> old_past_keys_dims, old_past_values_dims;
 
     std::cout << "--Intializing weights\n";
@@ -1117,33 +1152,49 @@ int main() {
 
     /* calling PhiAttention */
     std::cout << "Calling PhiAttention()\n";
-    PhiAttention(
-        /* inputs */
-        hidden_states,  hidden_states_dims,
-        attention_mask, attention_mask_dims,
-        position_ids,
-            old_past_keys,  old_past_keys_dims,
-            old_past_values,  old_past_values_dims,
-        /* weights */
-            proj_weights,  proj_weights_dims,
-            proj_bias,
-            proj_weights,  proj_weights_dims,
-            proj_bias,
-            proj_weights,  proj_weights_dims,
-            proj_bias,
-        num_heads, head_dim, num_kv_heads,
-            proj_weights,  proj_weights_dims,
-            proj_bias,
-        /* init params */
-        layer_idx,
-            sin_cached,  sin_cached_dims,
-            cos_cached,  cos_cached_dims,
-        rotary_emb_dim,
-        /* outputs */
-        attn_output, attn_output_dims,
-        past_keys, past_keys_dims,
-        past_values, past_values_dims
-    );
+    for (int i = 0; i < 2; i++) {
+        PhiAttention(
+            /* inputs */
+            hidden_states,  hidden_states_dims,
+            attention_mask, attention_mask_dims,
+            position_ids,
+                old_past_keys,  old_past_keys_dims,
+                old_past_values,  old_past_values_dims,
+            /* weights */
+                proj_weights,  proj_weights_dims,
+                proj_bias,
+                proj_weights,  proj_weights_dims,
+                proj_bias,
+                proj_weights,  proj_weights_dims,
+                proj_bias,
+            num_heads, head_dim, num_kv_heads,
+                proj_weights,  proj_weights_dims,
+                proj_bias,
+            /* init params */
+            layer_idx,
+                sin_cached,  sin_cached_dims,
+                cos_cached,  cos_cached_dims,
+            rotary_emb_dim,
+            /* outputs */
+            attn_output, attn_output_dims,
+            past_keys, past_keys_dims,
+            past_values, past_values_dims
+        );
+        // copy past_kvs into old_past_kvs
+        copyTensor(past_keys, old_past_keys, past_keys_dims);
+        old_past_keys_dims = past_keys_dims;
+        copyTensor(past_values, old_past_values, past_values_dims);
+        old_past_values_dims = past_values_dims;
+        std::cout << "\n\nEND OF ITERATION: " << i << "\n\n";
+        // update position ids (assuming 1 token input)
+        position_ids = std::vector<int>{q_LEN + i};
+        // update masking
+        free(attention_mask);
+        attention_mask = (float*)malloc(BATCH_SIZE * (i+1)+q_LEN * (i+1)+q_LEN * sizeof(float));
+        std::vector<uint32_t> attention_mask_dims {BATCH_SIZE, 1, 
+                                    (uint32_t)(i+1)+q_LEN, (uint32_t)(i+1)+q_LEN};
+        
+    }
     std::cout << "Exiting PhiAttention() and freeing memory\n";
     
     /* freeing */
