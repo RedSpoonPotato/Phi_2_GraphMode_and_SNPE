@@ -10,6 +10,9 @@
 #define HIDDEN_SIZE 2560
 #define QUERY_STATES_BUFF_SIZE  BATCH_SIZE*MAX_SEQ_LEN*HIDDEN_SIZE
 
+#define INTERMEDIATE_SIZE 10240
+#define INTERMEDIATE_STATES_BUFF_SIZE BATCH_SIZE*MAX_SEQ_LEN*INTERMEDIATE_SIZE
+
 // partial_rotary_factor: 0.4
 // head_dim = hidden_size // num_attention_heads i.e. (2560 / 32) = 80
 // sin_cos(param:dim) = head_dim * partial_rotary_factor = 80 * .4 = 32
@@ -1067,6 +1070,156 @@ void PhiAttention(
     free(attn_weights);
 }
 
+void NewGELU(
+    const float* input, float* output, const std::vector<uint32_t>& dims
+) {
+    float const_1 = sqrt(2.0f / M_PI);
+    // calculate total number of elements
+    uint64_t tot_elem = 1;
+    for (auto i : dims) {tot_elem *= i;}
+    // compute
+    for (uint64_t i = 0; i < tot_elem; i++) {
+        output[i] = 
+            0.5 * input[i] * 
+            tanh(const_1 * (input[i] + 0.044715 + pow(input[i], 3.0f)));
+    }
+}
+
+// currrently using an internal buffer
+void PhiMLP(
+    const float* input, const std::vector<uint32_t>& input_dims,
+    float* output, std::vector<uint32_t>& output_dims,
+    /* weights */
+    const float* fc1_weights, const std::vector<uint32_t>& fc1_weights_dims,
+    const float* fc1_bias,
+    const float* fc2_weights, const std::vector<uint32_t>& fc2_weights_dims,
+    const float* fc2_bias
+) {
+    // buffer to store larger intermediate size
+    float* intermediate_buff = (float*)malloc(INTERMEDIATE_STATES_BUFF_SIZE * sizeof(float));
+    std::vector<uint32_t> intermediate_buff_dims;
+    // compute
+    linear_Nd_32f(
+        input, fc1_weights, fc1_bias, intermediate_buff, 
+        input_dims, fc1_weights_dims, intermediate_buff_dims);
+    NewGELU(intermediate_buff, intermediate_buff, intermediate_buff_dims);
+    linear_Nd_32f(
+        intermediate_buff, fc2_weights, fc2_bias, output, 
+        intermediate_buff_dims, fc2_weights_dims, output_dims);
+    // free
+    free(intermediate_buff);
+}
+
+// NOTE: Could be optimized
+// using an internal buffer for holding the residual
+void PhiDecoderLayer(
+    /* inputs */
+    const float* hidden_states, const std::vector<uint32_t>& hidden_states_dims,
+    const float* attention_mask, const std::vector<uint32_t>& attention_mask_dims,
+    const std::vector<int>& position_ids,
+    const float* old_past_keys, const std::vector<uint32_t>& old_past_keys_dims,
+    const float* old_past_values, const std::vector<uint32_t>& old_past_values_dims,
+    /* Decoder Weights */
+    const float* input_layernorm_weights, const int input_layernorm_weights_len,
+    const float* input_layernorm_bias, const float decoder_eps,
+    const float* fc1_weights, const std::vector<uint32_t>& fc1_weights_dims,
+    const float* fc1_bias,
+    const float* fc2_weights, const std::vector<uint32_t>& fc2_weights_dims,
+    const float* fc2_bias,
+    /* Decoder Outputs: not needed */
+
+    /* PhiAttention weights */
+    const float* q_proj_weights, const std::vector<uint32_t>& q_proj_weights_dims,
+    const float* q_proj_bias,
+    const float* k_proj_weights, const std::vector<uint32_t>& k_proj_weights_dims,
+    const float* k_proj_bias,
+    const float* v_proj_weights, const std::vector<uint32_t>& v_proj_weights_dims,
+    const float* v_proj_bias,
+    // const float* q_layernorm_weights, const int q_layernorm_weights_len,
+    // const float* q_layernorm_bias,
+    // const float* k_layernorm_weights, const int k_layernorm_weights_len,
+    // const float* k_layernorm_bias,
+    // const float eps,
+    const int num_heads, const int head_dim, const int num_kv_heads,
+    const float* dense_weights, const std::vector<uint32_t>& dense_weights_dims,
+    const float* dense_bias,
+    /* init params */
+    const int layer_idx,
+    const float* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
+    const float* cos_cached, const std::vector<uint32_t>& cos_cached_dims,
+    int rotary_emb_dim,
+    /* outputs */
+    float* attn_output, std::vector<uint32_t>& attn_output_dims,
+    float* past_keys, std::vector<uint32_t>& past_keys_dims,
+    float* past_values, std::vector<uint32_t>& past_values_dims
+) {
+    // residual is contained within hidden_states
+
+    // layernorm
+    float* hidden_states_buff_2 = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
+    std::vector<uint32_t> hidden_states_dims_2;
+    layernorm_Nd_32f(
+        hidden_states, input_layernorm_weights, input_layernorm_bias,
+        hidden_states_buff_2, hidden_states_dims, input_layernorm_weights_len, decoder_eps);
+    hidden_states_dims_2 = hidden_states_dims;
+
+
+    // Phi Attention
+    // look into implementing inplace addition so you dont have to allocate this much memory
+    float* attn_output_buff_2 = (float*)malloc(ATTN_WEIGHTS_SIZE * sizeof(float));
+    std::vector<uint32_t> attn_output_buff_2_dims;
+    PhiAttention(
+        /* inputs */
+        hidden_states_buff_2,  hidden_states_dims_2, // could possibly be optmized
+        attention_mask, attention_mask_dims,
+        position_ids,
+        old_past_keys,  old_past_keys_dims,
+        old_past_values,  old_past_values_dims,
+        /* weights */
+        q_proj_weights, q_proj_weights_dims,
+        q_proj_bias,
+        k_proj_weights, k_proj_weights_dims,
+        k_proj_bias,
+        v_proj_weights, v_proj_weights_dims,
+        v_proj_bias,
+        num_heads, head_dim, num_kv_heads,
+        dense_weights, dense_weights_dims,
+        dense_bias,
+        /* init params */
+        layer_idx,
+        sin_cached,  sin_cached_dims,
+        cos_cached,  cos_cached_dims,
+        rotary_emb_dim,
+        /* outputs */
+        attn_output_buff_2, attn_output_buff_2_dims,
+        past_keys, past_keys_dims,
+        past_values, past_values_dims
+    );
+
+    // MLP
+    float* feed_forward_hidden_states = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
+    std::vector<uint32_t> feed_forward_hidden_states_dims;
+    PhiMLP(
+        hidden_states_buff_2, hidden_states_dims_2, 
+        feed_forward_hidden_states, feed_forward_hidden_states_dims,
+        fc1_weights, fc1_weights_dims, fc1_bias, 
+        fc2_weights, fc2_weights_dims, fc2_bias);
+    
+    // Large Addition (could optmizie by using an inplace addition for attn_outputs)
+    // using hidden_states_buff_2 as a output buffer
+    // hidden_states is the residual in this case
+    add_32f_general(
+        feed_forward_hidden_states, hidden_states, hidden_states_buff_2,
+        feed_forward_hidden_states_dims, hidden_states_dims, hidden_states_dims_2);
+    add_32f_general(
+        hidden_states_buff_2, attn_output_buff_2, attn_output,
+        hidden_states_dims_2, attn_output_buff_2_dims, attn_output_dims);
+    
+    // free
+    free(hidden_states_buff_2);
+    free(attn_output_buff_2);
+    free(feed_forward_hidden_states);
+}
 
 
 
@@ -1190,9 +1343,9 @@ int main() {
         position_ids = std::vector<int>{q_LEN + i};
         // update masking
         free(attention_mask);
-        attention_mask = (float*)malloc(BATCH_SIZE * (i+1)+q_LEN * (i+1)+q_LEN * sizeof(float));
-        std::vector<uint32_t> attention_mask_dims {BATCH_SIZE, 1, 
-                                    (uint32_t)(i+1)+q_LEN, (uint32_t)(i+1)+q_LEN};
+        attention_mask = (float*)malloc(BATCH_SIZE * 1 * (i+1)+q_LEN * sizeof(float));
+        for (int j = 0; j < ((i+1)+q_LEN); j++) {attention_mask[j] = 0.0f;}
+        std::vector<uint32_t> attention_mask_dims {BATCH_SIZE, 1, 1, (uint32_t)(i+1)+q_LEN};
         
     }
     std::cout << "Exiting PhiAttention() and freeing memory\n";
