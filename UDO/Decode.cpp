@@ -37,11 +37,21 @@ typedef uint16_t datatype; // idk if this should be outside the namespace
 #define DATASIZE 2
 
 // CHANGE THESE
-#define DECODER_WEIGHT_SIZE 10
+#define DECODER_WEIGHT_SIZE 78671361
 #define DECODER_WEIGHT_DIMS_SIZE 10
 #define DECODER_INIT_PARAMS_SIZE 10
 
+// DECODER WEIGHTS
+
+
 #define DECODERS 3
+
+// initalizes a vector to 4 values
+void init_dims_4_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr) {
+  vec = std::vector<uint32_t>;
+  ptr_32 = (uint32_t*)ptr;
+  for (int i = 0; i < 4; i++) { vec.push_back(ptr32[i]); }
+}
 
 
 Qnn_ErrorHandle_t execute(CustomOp* operation) {
@@ -79,6 +89,18 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   decoder_weights_dims[DECODERS * DECODER_WEIGHT_DIMS_SIZE * DATASIZE]
   decoder_init_pararms[DECODERS * DECODER_INIT_PARAMS_SIZE * DATASIZE]
   */
+
+  // udo input pointers
+  uint8_t* const Attn_And_Kv_In;
+  uint8_t* const AttentionMask;
+  uint8_t* const Position_Ids_1;
+  uint8_t* const Decoder_Weights;
+  uint8_t* const Decoder_Weights_Dims;
+  uint8_t* const Decoder_Init_Params;
+
+  // udo output pointer
+  uint8_t* UdoOutput;
+
 
   /* Decoder-Only Stuff */
   // data
@@ -127,8 +149,88 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   datatype* buff_6 = (datatype*)malloc(LARGE_BUFFER_SIZE * sizeof(datatype));
 
 
-  for (int i = 0; i < DECODERS; i++) {
-    
+  /* constant intializations */
+  // data
+  hidden_states = (datatype*)Attn_And_Kv_In;
+  attention_mask = (datatype*)AttentionMask;
+  ptr_32 = (int*)Position_Ids_1;
+  for (int i = 0; i < 4; i++) { position_ids.push_back(ptr32[i]); }
+  // dims
+  init_dims_4_uint32_t(hidden_states_dims, (uint8_t*)hidden_states + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
+  init_dims_4_uint32_t(attention_mask_dims, (uint8_t*)attention_mask + (MAX_SEQ_LEN * MAX_SEQ_LEN * 4));
+
+
+  std::vector<uint64_t> decoder_weight_tensor_sizes {
+    HIDDEN_SIZE, HIDDEN_SIZE, // LN
+    HIDDEN_SIZE * HIDDEN_SIZE, HIDDEN_SIZE, // Q
+    HIDDEN_SIZE * HIDDEN_SIZE, HIDDEN_SIZE, // K
+    HIDDEN_SIZE * HIDDEN_SIZE, HIDDEN_SIZE, // V
+    HIDDEN_SIZE * HIDDEN_SIZE, HIDDEN_SIZE, // Dense
+    HIDDEN_SIZE * INTERMEDIATE_SIZE, INTERMEDIATE_SIZE, // fc1
+    INTERMEDIATE_SIZE * HIDDEN_SIZE, HIDDEN_SIZE // fc2
+  };
+
+  std::vector<uint64_t> decoder_weight_offsets = {0};
+  for (int i = 0; i < decoder_weight_tensor_sizes.size() - 1; i++) {
+    uint64_t offset = decoder_weight_tensor_offsets.end()[-1];
+    offset += decoder_weight_tensor_sizes[i];
+    decoder_weight_tensor_offsets.push_back()
+  }
+
+  
+  uint64_t total_decoder_weight_tensor_size = 1;
+  for (auto i : decoder_weight_tensor_sizes) {
+    total_decoder_weight_tensor_size += i;
+  }
+  std::cout << "1 individual decoder weight size: " 
+            << total_decoder_weight_tensor_size << "\n";
+  // probalby wanna put an insert statement with the macro
+
+
+  for (uint64_t i = 0; i < DECODERS; i++) {
+    /* inputs */
+    // data
+    old_past_keys =   (datatype*)&Attn_And_Kv_In[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+    old_past_values = (datatype*)&Attn_And_Kv_In[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+    // dims
+    // may overflow
+    init_dims_4_uint32_t(old_past_keys_dims, (uint8_t*)old_past_keys + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
+    init_dims_4_uint32_t(old_past_values_dims, (uint8_t*)old_past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
+
+    /* Decoder Weights */
+    // data
+    input_layernorm_weights = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[0]];
+    input_layernorm_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[1]];
+    q_proj_weight = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[2]];
+    q_proj_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[3]];
+    k_proj_weight = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[4]];
+    k_proj_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[5]];
+    v_proj_weight = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[6]];
+    v_proj_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[7]];
+    dense_weights = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[8]];
+    dense_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[9]];
+    fc1_weights = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[10]];
+    fc1_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[11]];
+    fc2_weights = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[12]];
+    fc2_bias = (datatype*)&Decoder_Weights[
+      i * DECODER_WEIGHT_SIZE*DATASIZE + decoder_weight_tensor_offsets[13]];
+    // dims
+    input_layernorm_weights_len
+
+
 
     void PhiDecoderLayer_16f_cpu(
       /* inputs */
