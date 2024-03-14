@@ -1712,7 +1712,8 @@ void PhiDecoderLayer_16f_cpu(
 
 
 
-#define q_LEN 2000
+
+#define q_LEN 11
 
 // temp function, remove later
 // int main() {
@@ -1883,4 +1884,50 @@ int main() {
     return 0;
 }
 
+
+// defining the stuff past the decoders
+
+// layer norm weights and bias
+// lm_head weights and bias
+// argmax
+void LM_Head_16f(
+    const datatype* hidden_states, const std::vector<uint32_t>& hidden_states_dims,
+    /* weights */
+    const datatype* final_layernorm_weights, const int final_layernorm_weights_len,
+    const datatype* final_layernorm_bias, const float eps,
+    const datatype* lm_head_weights, const std::vector<uint32_t>& lm_head_weights_dims,
+    const datatype* lm_head_bias,
+    /* buffers */
+    float* buff_1, float* buff_2, float* buff_3,
+    datatype* buff_4, datatype* buff_5,
+    /* output */
+    uint32_t& token_selected
+) {
+    // layer norm
+    layernorm_Nd_16f_cpu(
+        hidden_states, final_layernorm_weights, final_layernorm_bias, buff_4,
+        buff_1, buff_2, buff_3,
+        hidden_states_dims, final_layernorm_weights_len, eps);
+    // lm head linear layer
+    std::vector<uint32_t> temp_dims;
+    linear_Nd_16f_cpu(
+        buff_4, lm_head_weights, lm_head_bias, buff_5,
+        buff_1, buff_2, buff_3,
+        hidden_states_dims, lm_head_weights_dims, temp_dims);
+    // argmax
+    // temp_dims: 1, 1, seq_len, vocab_size or 1,seq-len,vocab_size
+    fp16_to_fp32((ushort*)buff_5, buff_1, temp_dims);
+    uint32_t word_index = temp_dims.end()[-2] - 1;
+    uint32_t vocab_size = temp_dims.end()[-1];
+    uint32_t offset = word_index * vocab_size;
+    float maxElt = std::numeric_limits<float>::lowest();
+    uint32_t argmax = 0;
+    for (int i = 0; i < vocab_size; i++) {
+        if (maxElt < buff_1[i + offset]) {
+            maxElt = buff_1[i + offset];
+            argmax = i;
+        }
+    }
+    token_selected = argmax;
+}
 
