@@ -752,6 +752,7 @@ void gather_32f(
         dim_offsets[i] = dim_offsets[i+1] * x_dims[i+1];
     }
     unsigned long long offset = dim_offsets[0];
+    std::cout << "writing data\n";
     // writing to out
     for (int i = 0; i < indices.size(); i++) {
         for (int j = 0; j < offset; j++) {
@@ -1012,6 +1013,7 @@ void apply_rotary_pos_emb_32f(
     float* sin_buff = (float*)malloc(SIN_COS_BUFF_SIZE * sizeof(float));
     std::vector<uint32_t> cos_buff_dims, sin_buff_dims;
     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
+    std::cout << "cos[0]: " << cos[0] << "\n";
     gather_32f(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     gather_32f(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
@@ -1075,9 +1077,10 @@ void apply_rotary_pos_emb_32f(
     free(sin_buff);
 }
 
-void allocate_32f(const datatype* in, float* out, const std::vector<uint32_t>& dims) {
+void allocate_32f(const datatype* in, float*& out, const std::vector<uint32_t>& dims) {
     size_t ten_size = 1;
     for (auto i : dims) { ten_size *= i; }
+    std::cout << ten_size << "\n";
     out = (float*)malloc(ten_size * sizeof(float));
     fp16_to_fp32((ushort*)in, out, dims);
 }
@@ -1254,16 +1257,6 @@ void PhiAttention_16f_cpu(
         buff_1, buff_2, buff_3,
         hidden_states_dims, v_proj_weights_dims, value_states_dims);
     
-
-    
-    // careful for using the same buffer as input & output
-    // aparently, we dont use them
-    // layernorm_Nd_32f(
-    //     query_states_buff, q_layernorm_weights, q_layernorm_bias, query_states_buff,
-    //     query_states_dims, q_layernorm_weights_len, eps);
-    // layernorm_Nd_32f(
-    //     key_states_buff, k_layernorm_weights, k_layernorm_bias, key_states_buff,
-    //     key_states_dims, k_layernorm_weights_len, eps);
     
     // reshape
     query_states_dims = std::vector<uint32_t>{
@@ -1652,21 +1645,15 @@ void PhiDecoderLayer_16f_cpu(
     /* outputs */
     datatype* attn_output, std::vector<uint32_t>& attn_output_dims,
     datatype* past_keys, std::vector<uint32_t>& past_keys_dims,
-    datatype* past_values, std::vector<uint32_t>& past_values_dims,
+    datatype* past_values, std::vector<uint32_t>& past_values_dims
 ) {
-    // residual is contained within hidden_states
-    datatype* residual = (datatype*)hidden_states;
-
     // layernorm
     layernorm_Nd_16f_cpu(
         hidden_states, input_layernorm_weights, input_layernorm_bias, buff_4,
         buff_1, buff_2, buff_3, hidden_states_dims,input_layernorm_weights_len, decoder_eps);
     std::vector<uint32_t> hidden_states_dims_2 = hidden_states_dims;
-
-
     // Phi Attention
     // look into implementing inplace addition so you dont have to allocate this much memory
-    float* attn_output_buff_2 = (float*)malloc(ATTN_WEIGHTS_SIZE * sizeof(float));
     std::vector<uint32_t> attn_output_buff_2_dims;
     PhiAttention_16f_cpu(
         /* inputs */
@@ -1698,7 +1685,6 @@ void PhiDecoderLayer_16f_cpu(
         past_keys, past_keys_dims,
         past_values, past_values_dims
     );
-
     // MLP
     std::vector<uint32_t> feed_forward_hidden_states_dims;
     // writing over buff_4
@@ -1709,37 +1695,24 @@ void PhiDecoderLayer_16f_cpu(
         fc2_weights, fc2_weights_dims, fc2_bias,
         buff_1, buff_2, buff_3
         );
-
-
     // buff_5 + buff_6 + hidden_states
-    
-    // Large Addition (could optmizie by using an inplace addition for attn_outputs)
-    // using hidden_states_buff_2 as a output buffer
     // hidden_states is the residual in this case
-
+    std::vector<uint32_t> temp_dims;
     add_general_16f_cpu(
         buff_5, buff_6, buff_4, 
         buff_1, buff_2, buff_3,
         attn_output_buff_2_dims, feed_forward_hidden_states_dims,
-        attn_output_dims
-    )
-
-    add_32f_general(
-        feed_forward_hidden_states, hidden_states, hidden_states_buff_2,
-        feed_forward_hidden_states_dims, hidden_states_dims, hidden_states_dims_2);
-    add_32f_general(
-        hidden_states_buff_2, attn_output_buff_2, attn_output,
-        hidden_states_dims_2, attn_output_buff_2_dims, attn_output_dims);
-    
-    // free
-    free(hidden_states_buff_2);
-    free(attn_output_buff_2);
-    free(feed_forward_hidden_states);
+        temp_dims);
+    add_general_16f_cpu(
+        buff_4, hidden_states, attn_output, 
+        buff_1, buff_2, buff_3,
+        temp_dims, hidden_states_dims,
+        attn_output_dims);
 }
 
 
 
-#define q_LEN 11
+#define q_LEN 2000
 
 // temp function, remove later
 // int main() {
@@ -1771,7 +1744,7 @@ int main() {
     std::cout << "--Intializing inputs\n";
     /* inputs */
     // float hidden_states[BATCH_SIZE * q_LEN * HIDDEN_SIZE];
-    float* hidden_states = (float*)malloc(BATCH_SIZE * q_LEN * HIDDEN_SIZE * sizeof(float));
+    datatype* hidden_states = (datatype*)malloc(BATCH_SIZE * q_LEN * HIDDEN_SIZE * sizeof(datatype));
     std::vector<uint32_t> hidden_states_dims {BATCH_SIZE, q_LEN, HIDDEN_SIZE};
     // float attention_mask[BATCH_SIZE * q_LEN * q_LEN];
     float* attention_mask = (float*)malloc(BATCH_SIZE * q_LEN * q_LEN * sizeof(float));
@@ -1780,17 +1753,17 @@ int main() {
     for (int i = 0; i < q_LEN; i++) { position_ids.push_back(i); }
     // float *old_past_keys, *old_past_values;
     // old_past_keys = old_past_values = NULL;
-    float *old_past_keys = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
-    float *old_past_values = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
+    datatype *old_past_keys = (datatype*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(datatype));
+    datatype *old_past_values = (datatype*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(datatype));
     std::vector<uint32_t> old_past_keys_dims, old_past_values_dims;
 
     std::cout << "--Intializing weights\n";
     /* weights */
     // projs (same for all)
-    // float proj_weights[HIDDEN_SIZE * HIDDEN_SIZE];
-    float* proj_weights = (float*)malloc(HIDDEN_SIZE * HIDDEN_SIZE * sizeof(float));
-    // float proj_bias[HIDDEN_SIZE];
-    float* proj_bias = (float*)malloc(HIDDEN_SIZE * sizeof(float));
+    // datatype proj_weights[HIDDEN_SIZE * HIDDEN_SIZE];
+    datatype* proj_weights = (datatype*)malloc(HIDDEN_SIZE * HIDDEN_SIZE * sizeof(datatype));
+    // datatype proj_bias[HIDDEN_SIZE];
+    datatype* proj_bias = (datatype*)malloc(HIDDEN_SIZE * sizeof(datatype));
     std::vector<uint32_t> proj_weights_dims = {HIDDEN_SIZE, HIDDEN_SIZE};
     // params
     const int num_heads = 32;
@@ -1799,32 +1772,37 @@ int main() {
 
     std::cout << "--Intializing params\n";
     /* init params */
-    // float sin_cached[SIN_COS_BUFF_SIZE];
-    float* sin_cached = (float*)malloc(SIN_COS_BUFF_SIZE * sizeof(float));
+    // datatype sin_cached[SIN_COS_BUFF_SIZE];
+    datatype* sin_cached = (datatype*)malloc(SIN_COS_BUFF_SIZE * sizeof(datatype));
     std::vector<uint32_t> sin_cached_dims {MAX_SEQ_LEN, 32};
-    // float cos_cached[SIN_COS_BUFF_SIZE];
-    float* cos_cached = (float*)malloc(SIN_COS_BUFF_SIZE * sizeof(float));
+    // datatype cos_cached[SIN_COS_BUFF_SIZE];
+    datatype* cos_cached = (datatype*)malloc(SIN_COS_BUFF_SIZE * sizeof(datatype));
     std::vector<uint32_t> cos_cached_dims {MAX_SEQ_LEN, 32};
     int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
     int layer_idx = 0;
 
     std::cout << "--Intializing outputs\n";
     /* outputs */
-    // float attn_output[ATTN_WEIGHTS_SIZE];
+    // datatype attn_output[ATTN_WEIGHTS_SIZE];
     // has to be same size as attn_weights b/c we use it as a temp buffer
-    float* attn_output = (float*)malloc(ATTN_WEIGHTS_SIZE * sizeof(float));
+    datatype* attn_output = (datatype*)malloc(ATTN_WEIGHTS_SIZE * sizeof(datatype));
     std::vector<uint32_t> attn_output_dims;
-    // float past_keys[QUERY_STATES_BUFF_SIZE];
-    float* past_keys = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
+    // datatype past_keys[QUERY_STATES_BUFF_SIZE];
+    datatype* past_keys = (datatype*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(datatype));
     std::vector<uint32_t> past_keys_dims;
-    // float past_values[QUERY_STATES_BUFF_SIZE];
-    float* past_values = (float*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(float));
+    // datatype past_values[QUERY_STATES_BUFF_SIZE];
+    datatype* past_values = (datatype*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(datatype));
     std::vector<uint32_t> past_values_dims;
+
+    std::cout << "Intializing buffers\n";
+    float* buff_1 = (float*)malloc(ATTN_WEIGHTS_SIZE * sizeof(float));
+    float* buff_2 = (float*)malloc(ATTN_WEIGHTS_SIZE * sizeof(float));
+    float* buff_3 = (float*)malloc(ATTN_WEIGHTS_SIZE * sizeof(float));
 
     /* calling PhiAttention */
     std::cout << "Calling PhiAttention()\n";
     for (int i = 0; i < 1; i++) {
-        PhiAttention(
+        PhiAttention_16f_cpu(
             /* inputs */
             hidden_states,  hidden_states_dims,
             attention_mask, attention_mask_dims,
@@ -1838,6 +1816,10 @@ int main() {
                 proj_bias,
                 proj_weights,  proj_weights_dims,
                 proj_bias,
+
+            /* large buffers */
+            buff_1, buff_2, buff_3,
+
             num_heads, head_dim, num_kv_heads,
                 proj_weights,  proj_weights_dims,
                 proj_bias,
@@ -1852,9 +1834,9 @@ int main() {
             past_values, past_values_dims
         );
         // copy past_kvs into old_past_kvs
-        copyTensor(past_keys, old_past_keys, past_keys_dims);
+        copyTensor_16f(past_keys, old_past_keys, past_keys_dims);
         old_past_keys_dims = past_keys_dims;
-        copyTensor(past_values, old_past_values, past_values_dims);
+        copyTensor_16f(past_values, old_past_values, past_values_dims);
         old_past_values_dims = past_values_dims;
         std::cout << "\n\nEND OF ITERATION: " << i << "\n\n";
         // update position ids (assuming 1 token input)
@@ -1892,7 +1874,13 @@ int main() {
     free(attn_output);
     free(past_keys);
     free(past_values);
+
+    free(buff_1);
+    free(buff_2);
+    free(buff_3);
     
 
     return 0;
 }
+
+
