@@ -41,6 +41,8 @@ typedef uint16_t datatype; // idk if this should be outside the namespace
 #define DECODER_WEIGHT_DIMS_SIZE 10
 #define DECODER_INIT_PARAMS_SIZE 10
 
+#define DECODERS 3
+
 
 Qnn_ErrorHandle_t execute(CustomOp* operation) {
 
@@ -68,19 +70,53 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   /*
   assumed inputs (NOTE: THIS ORDER MAY HAVE OT CHANGE DRAMATICALLY) (all 16-bit except mask and pos_ids)
 
-  SIZES IN MEMORY
+  SIZES IN MEMORY (in bytes)
 
-  attn_and_kv_in[(4+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*DECODERS)]
-  attention_mask[4 + 4*MAX_SEQ_LEN^2] // 32bit
-  position_ids_1[4 + MAX_SEQ_LEN] // 32bit
-  decoder_weights[DECODERS * DECODER_WEIGHT_SIZE * DATASIZE]
+  attn_and_kv_in[(4*4+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*DECODERS)]
+  attention_mask[4*4 + 4*MAX_SEQ_LEN^2] // 32bit
+  position_ids_1[4*4 + MAX_SEQ_LEN] // 32bit
+  decoder_weights[DECODERS * DECODER_WEIGHT_SIZE * DATASIZE)]
   decoder_weights_dims[DECODERS * DECODER_WEIGHT_DIMS_SIZE * DATASIZE]
   decoder_init_pararms[DECODERS * DECODER_INIT_PARAMS_SIZE * DATASIZE]
   */
 
-  datatype* hidden_states;
-  
+  /* Decoder-Only Stuff */
+  // data
+  datatype *input_layernorm_weights, *input_layernorm_bias, 
+            *fc1_weights, *fc1_bias,
+            *fc2_weights, *fc2_bias;
+  // dims
+  std::vector<uint32_t> fc1_weights_dims, fc2_weights_dims;
+  int input_layernorm_weights_len;
+  float decoder_eps;
 
+  /* Phi Attention Stuff */
+  // data
+  datatype *hidden_states, *old_past_keys, *old_past_values,
+           *q_proj_weights, *q_proj_bias,
+           *k_proj_weights, *k_proj_bias,
+           *v_proj_weights, *v_proj_bias,
+           *dense_weights, *dense_bias
+           *sin_cached, *cos_cached, *attn_output, *past_keys, *past_values;
+  // mask
+  float* attention_mask;
+  std::vector<int> position_ids;
+  // dims
+  std::vector<uint32_t> hidden_states_dims, attention_mask_dims, 
+  old_past_keys_dims, old_past_values_dims,
+  q_proj_weights_dims, k_proj_weights_dims, v_proj_weights_dims,
+  dense_weights_dims,
+  attn_output_dims, past_keys_dims, past_values_dims;
+  // std::vector<uint32_t> proj_weights_dims = {HIDDEN_SIZE, HIDDEN_SIZE}; // remenant odl ops.cpp code
+
+  std::vector<uint32_t> sin_cached_dims {MAX_SEQ_LEN, 32};
+  std::vector<uint32_t> cos_cached_dims {MAX_SEQ_LEN, 32};
+  // params (do these need to be grabbed?)
+  const int num_heads = 32;
+  const int head_dim = HIDDEN_SIZE / num_heads;
+  const int num_kv_heads = 32;
+  int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
+  int layer_idx = 0;
 
   /* Buffers */
   float* buff_1 = (float*)malloc(LARGE_BUFFER_SIZE * sizeof(float));
@@ -91,45 +127,50 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   datatype* buff_6 = (datatype*)malloc(LARGE_BUFFER_SIZE * sizeof(datatype));
 
 
-  void PhiDecoderLayer_16f_cpu(
-    /* inputs */
-    const datatype* hidden_states, const std::vector<uint32_t>& hidden_states_dims,
-    const float* attention_mask, const std::vector<uint32_t>& attention_mask_dims,
-    const std::vector<int>& position_ids,
-    const datatype* old_past_keys, const std::vector<uint32_t>& old_past_keys_dims,
-    const datatype* old_past_values, const std::vector<uint32_t>& old_past_values_dims,
-    /* Decoder Weights */
-    const datatype* input_layernorm_weights, const int input_layernorm_weights_len,
-    const datatype* input_layernorm_bias, const float decoder_eps,
-    const datatype* fc1_weights, const std::vector<uint32_t>& fc1_weights_dims,
-    const datatype* fc1_bias,
-    const datatype* fc2_weights, const std::vector<uint32_t>& fc2_weights_dims,
-    const datatype* fc2_bias,
-    /* LARGE buffers */
-    float* buff_1, float* buff_2, float* buff_3,
-    datatype* buff_4, datatype* buff_5, datatype* buff_6,
+  for (int i = 0; i < DECODERS; i++) {
+    
 
-    /* PhiAttention weights */
-    const datatype* q_proj_weights, const std::vector<uint32_t>& q_proj_weights_dims,
-    const datatype* q_proj_bias,
-    const datatype* k_proj_weights, const std::vector<uint32_t>& k_proj_weights_dims,
-    const datatype* k_proj_bias,
-    const datatype* v_proj_weights, const std::vector<uint32_t>& v_proj_weights_dims,
-    const datatype* v_proj_bias,
- 
-    const int num_heads, const int head_dim, const int num_kv_heads,
-    const datatype* dense_weights, const std::vector<uint32_t>& dense_weights_dims,
-    const datatype* dense_bias,
-    /* init params */
-    const int layer_idx,
-    const datatype* sin_cached, const std::vector<uint32_t>& sin_cached_dims,
-    const datatype* cos_cached, const std::vector<uint32_t>& cos_cached_dims,
-    int rotary_emb_dim,
-    /* outputs */
-    datatype* attn_output, std::vector<uint32_t>& attn_output_dims,
-    datatype* past_keys, std::vector<uint32_t>& past_keys_dims,
-    datatype* past_values, std::vector<uint32_t>& past_values_dims
-) 
+    void PhiDecoderLayer_16f_cpu(
+      /* inputs */
+      hidden_states, hidden_states_dims,
+      attention_mask, attention_mask_dims,
+      position_ids,
+      old_past_keys, old_past_keys_dims,
+      old_past_values, old_past_values_dims,
+      /* Decoder Weights */
+      input_layernorm_weights, input_layernorm_weights_len,
+      input_layernorm_bias, decoder_eps,
+      fc1_weights, fc1_weights_dims,
+      fc1_bias,
+      fc2_weights, fc2_weights_dims,
+      fc2_bias,
+      /* LARGE buffers */
+      buff_1, buff_2, buff_3,
+      buff_4, buff_5, buff_6,
+      /* PhiAttention weights */
+      q_proj_weights, q_proj_weights_dims,
+      q_proj_bias,
+      k_proj_weights, k_proj_weights_dims,
+      k_proj_bias,
+      v_proj_weights, v_proj_weights_dims,
+      v_proj_bias,
+  
+      num_heads, head_dim, num_kv_heads,
+      dense_weights, dense_weights_dims,
+      dense_bias,
+      /* init params */
+      layer_idx,
+      sin_cached, sin_cached_dims,
+      cos_cached, cos_cached_dims,
+      rotary_emb_dim,
+      /* outputs */
+      attn_output, attn_output_dims,
+      past_keys, past_keys_dims,
+      past_values, past_values_dims
+    )
+        
+  }
+
   
   free(buff_1);
   free(buff_2);
