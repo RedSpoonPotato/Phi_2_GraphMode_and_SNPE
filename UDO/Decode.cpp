@@ -43,8 +43,7 @@ typedef uint16_t datatype; // idk if this should be outside the namespace
 #define DECODER_WEIGHT_SIZE 78671360
 #define LM_WEIGHTS_SIZE 131128320
 
-// DECODER WEIGHTS
-
+#define VOCAB_SIZE 51200
 
 #define DECODERS 4
 
@@ -1693,7 +1692,46 @@ void PhiDecoderLayer_16f_cpu(
         attn_output_dims);
 }
 
-
+void LM_Head_16f(
+    const datatype* hidden_states, const std::vector<uint32_t>& hidden_states_dims,
+    /* weights */
+    const datatype* final_layernorm_weights, const int final_layernorm_weights_len,
+    const datatype* final_layernorm_bias, const float eps,
+    const datatype* lm_head_weights, const std::vector<uint32_t>& lm_head_weights_dims,
+    const datatype* lm_head_bias,
+    /* buffers */
+    float* buff_1, float* buff_2, float* buff_3,
+    datatype* buff_4, datatype* buff_5,
+    /* output */
+    uint32_t& token_selected
+) {
+    // layer norm
+    layernorm_Nd_16f_cpu(
+        hidden_states, final_layernorm_weights, final_layernorm_bias, buff_4,
+        buff_1, buff_2, buff_3,
+        hidden_states_dims, final_layernorm_weights_len, eps);
+    // lm head linear layer
+    std::vector<uint32_t> temp_dims;
+    linear_Nd_16f_cpu(
+        buff_4, lm_head_weights, lm_head_bias, buff_5,
+        buff_1, buff_2, buff_3,
+        hidden_states_dims, lm_head_weights_dims, temp_dims);
+    // argmax
+    // temp_dims: 1, 1, seq_len, vocab_size or 1,seq-len,vocab_size
+    fp16_to_fp32((ushort*)buff_5, buff_1, temp_dims);
+    uint32_t word_index = temp_dims.end()[-2] - 1;
+    uint32_t vocab_size = temp_dims.end()[-1];
+    uint32_t offset = word_index * vocab_size;
+    float maxElt = std::numeric_limits<float>::lowest();
+    uint32_t argmax = 0;
+    for (int i = 0; i < vocab_size; i++) {
+        if (maxElt < buff_1[i + offset]) {
+            maxElt = buff_1[i + offset];
+            argmax = i;
+        }
+    }
+    token_selected = argmax;
+}
 
 
 // initalizes a vector to 4 values
@@ -1752,7 +1790,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   
 
   // udo output pointer
-  uint8_t* UdoOutput = (uint8_t*)operation->getOutput(0)->data;
+  uint8_t* const UdoOutput = (uint8_t*)operation->getOutput(0)->data;
 
 
   /* Decoder-Only Stuff */
@@ -1804,7 +1842,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   // data
   hidden_states = (datatype*)Attn_And_Kv_In;
   attention_mask = (float*)AttentionMask;
-  int* ptr_32 = (int*)Position_Ids_1;
+  int* ptr_32 = (int*)(&Position_Ids_1[MAX_SEQ_LEN]);
   for (int i = 0; i < 4; i++) { position_ids.push_back(ptr_32[i]); }
   // dims
   init_dims_4_uint32_t(hidden_states_dims, (uint8_t*)hidden_states + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
@@ -1872,7 +1910,8 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     // may overflow
     init_dims_4_uint32_t(old_past_keys_dims, (uint8_t*)old_past_keys + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
     init_dims_4_uint32_t(old_past_values_dims, (uint8_t*)old_past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
-
+    if (old_past_keys_dims.end()[-1] == 0) { old_past_keys_dims = std::vector<uint32_t>(); }
+    if (old_past_values_dims.end()[-1] == 0) { old_past_values_dims = std::vector<uint32_t>(); }
     /* Decoder Weights */
     // data
     input_layernorm_weights = (datatype*)&Decoder_Weights[
@@ -1950,12 +1989,44 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     kv_ptr = (uint32_t*)((uint8_t*)past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
     for (int j = 0; j < past_values_dims.size(); j++) { kv_ptr[j] = past_values_dims[j]; }
 
-    if (i < DECODERS-1) {
-      // update input
-      copyTensor_16f(attn_output, io_buff, attn_output_dims);
-      hidden_states_dims = attn_output_dims;
-    }
+    // update input
+    copyTensor_16f(attn_output, io_buff, attn_output_dims);
+    hidden_states_dims = attn_output_dims;
   }
+
+  /* Decoders Finished, output in UdoOutput buffer */
+  int final_layernorm_weights_len = HIDDEN_SIZE;
+  decoder_eps = 1e-5;
+  std::vector<uint32_t> lm_head_weights_dims = {HIDDEN_SIZE, VOCAB_SIZE};
+
+  // parse weights
+  uint64_t offset = 0;
+  datatype* final_layernorm_weights = (datatype*)(&LM_Head_Weights[0]);
+  offset += HIDDEN_SIZE;
+  datatype* final_layernorm_bias = (datatype*)(&LM_Head_Weights[offset*DATASIZE]);
+  offset += HIDDEN_SIZE;
+  datatype* lm_head_weights = (datatype*)(&LM_Head_Weights[offset*DATASIZE]);
+  offset += HIDDEN_SIZE*VOCAB_SIZE;
+  datatype* lm_head_bias = (datatype*)(&LM_Head_Weights[offset*DATASIZE]);
+
+  uint32_t token_selected;
+
+  LM_Head_16f(
+    io_buff, hidden_states_dims,
+    /* weights */
+    final_layernorm_weights, final_layernorm_weights_len,
+    final_layernorm_bias, decoder_eps,
+    lm_head_weights, lm_head_weights_dims,
+    lm_head_bias,
+    /* buffers */
+    buff_1, buff_2, buff_3,
+    buff_4, buff_5,
+    /* output */
+    token_selected
+  );
+
+  // write the token as the first 4 bytes of the output buffer
+  ((uint32_t*)UdoOutput)[0] = token_selected;
 
   
   free(buff_1);
