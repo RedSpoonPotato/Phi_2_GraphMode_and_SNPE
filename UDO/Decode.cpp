@@ -42,8 +42,8 @@ typedef uint16_t datatype; // idk if this should be outside the namespace
 
 // CHANGE THESE
 #define DECODER_WEIGHT_SIZE 78671361
-#define DECODER_WEIGHT_DIMS_SIZE 10
-#define DECODER_INIT_PARAMS_SIZE 10
+// #define DECODER_WEIGHT_DIMS_SIZE 10
+// #define DECODER_INIT_PARAMS_SIZE 10
 
 // DECODER WEIGHTS
 
@@ -1863,8 +1863,6 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   hidden_states = io_buff;
 
  
-
-
   for (uint64_t i = 0; i < DECODERS; i++) {
 
     /* inputs */
@@ -1951,13 +1949,18 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
       past_values, past_values_dims
     )
 
-    // update kv to point to proper place
-    // write dims to memory aswell
-    
+    // write kv dims to memory aswell
+    datatype *kv_ptr;
+    kv_ptr = (uint32_t*)((uint8_t*)past_keys + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
+    for (int j = 0; j < past_keys_dims; j++) { kv_ptr[j] = past_keys_dims[j]; }
+    kv_ptr = (uint32_t*)((uint8_t*)past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
+    for (int j = 0; j < past_values_dims; j++) { kv_ptr[j] = past_values_dims[j]; }
 
-    // update input and output
-    copyTensor_16f(attn_output, io_buff, attn_output_dims);
-
+    if (i < DECODERS-1) {
+      // update input
+      copyTensor_16f(attn_output, io_buff, attn_output_dims);
+      hidden_states_dims = attn_output_dims;
+    }
   }
 
   
