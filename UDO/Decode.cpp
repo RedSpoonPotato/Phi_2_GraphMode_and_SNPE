@@ -1698,9 +1698,9 @@ void PhiDecoderLayer_16f_cpu(
 
 // initalizes a vector to 4 values
 void init_dims_4_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr) {
-  vec = std::vector<uint32_t>;
-  ptr_32 = (uint32_t*)ptr;
-  for (int i = 0; i < 4; i++) { vec.push_back(ptr32[i]); }
+  vec = std::vector<uint32_t>();
+  uint32_t* ptr_32 = (uint32_t*)ptr;
+  for (int i = 0; i < 4; i++) { vec.push_back(ptr_32[i]); }
 }
 
 
@@ -1741,20 +1741,18 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   */
 
   // udo input pointers
-  uint8_t* const Attn_And_Kv_In;
-  uint8_t* const AttentionMask;
-  uint8_t* const Position_Ids_1;
-  uint8_t* const Decoder_Weights;
-  uint8_t* const Decoder_Weights_Dims;
-  uint8_t* const Decoder_Init_Params;
-
+  uint8_t* const Attn_And_Kv_In = (uint8_t*)operation->getInput(0)->data;
+  uint8_t* const AttentionMask = (uint8_t*)operation->getInput(1)->data;
+  uint8_t* const Position_Ids_1 = (uint8_t*)operation->getInput(2)->data;
+  uint8_t* const Decoder_Weights = (uint8_t*)operation->getInput(3)->data;
+  uint8_t* const LM_Head_Weights = (uint8_t*)operation->getInput(4)->data;
   // added output
-  uint8_t* const sin_cached;
-  uint8_t* const cos_cached;
+  datatype* sin_cached = (datatype*)operation->getInput(5)->data;
+  datatype* cos_cached = (datatype*)operation->getInput(6)->data;
   
 
   // udo output pointer
-  uint8_t* UdoOutput;
+  uint8_t* UdoOutput = (uint8_t*)operation->getOutput(0)->data;
 
 
   /* Decoder-Only Stuff */
@@ -1773,8 +1771,8 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
            *q_proj_weights, *q_proj_bias,
            *k_proj_weights, *k_proj_bias,
            *v_proj_weights, *v_proj_bias,
-           *dense_weights, *dense_bias
-           *sin_cached, *cos_cached, *attn_output, *past_keys, *past_values;
+           *dense_weights, *dense_bias,
+          *attn_output, *past_keys, *past_values;
   // mask
   float* attention_mask;
   std::vector<int> position_ids;
@@ -1786,14 +1784,12 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   attn_output_dims, past_keys_dims, past_values_dims;
   // std::vector<uint32_t> proj_weights_dims = {HIDDEN_SIZE, HIDDEN_SIZE}; // remenant odl ops.cpp code
 
-  std::vector<uint32_t> sin_cached_dims {MAX_SEQ_LEN, 32};
-  std::vector<uint32_t> cos_cached_dims {MAX_SEQ_LEN, 32};
+  std::vector<uint32_t> sin_cached_dims, cos_cached_dims;
   // params (do these need to be grabbed?)
   const int num_heads = 32;
   const int head_dim = HIDDEN_SIZE / num_heads;
   const int num_kv_heads = 32;
   int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
-  int layer_idx = 0;
 
   /* Buffers */
   float* buff_1 = (float*)malloc(LARGE_BUFFER_SIZE * sizeof(float));
@@ -1807,9 +1803,9 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   /* constant intializations */
   // data
   hidden_states = (datatype*)Attn_And_Kv_In;
-  attention_mask = (datatype*)AttentionMask;
-  ptr_32 = (int*)Position_Ids_1;
-  for (int i = 0; i < 4; i++) { position_ids.push_back(ptr32[i]); }
+  attention_mask = (float*)AttentionMask;
+  int* ptr_32 = (int*)Position_Ids_1;
+  for (int i = 0; i < 4; i++) { position_ids.push_back(ptr_32[i]); }
   // dims
   init_dims_4_uint32_t(hidden_states_dims, (uint8_t*)hidden_states + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
   init_dims_4_uint32_t(attention_mask_dims, (uint8_t*)attention_mask + (MAX_SEQ_LEN * MAX_SEQ_LEN * 4));
@@ -1883,15 +1879,15 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[0]) * DECODERS];
     input_layernorm_bias = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[1]) * DECODERS];
-    q_proj_weight = (datatype*)&Decoder_Weights[
+    q_proj_weights = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[2]) * DECODERS];
     q_proj_bias = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[3]) * DECODERS];
-    k_proj_weight = (datatype*)&Decoder_Weights[
+    k_proj_weights = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[4]) * DECODERS];
     k_proj_bias = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[5]) * DECODERS];
-    v_proj_weight = (datatype*)&Decoder_Weights[
+    v_proj_weights = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[6]) * DECODERS];
     v_proj_bias = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[7]) * DECODERS];
@@ -1908,7 +1904,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     fc2_bias = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[13]) * DECODERS];
 
-    void PhiDecoderLayer_16f_cpu(
+    PhiDecoderLayer_16f_cpu(
       /* inputs */
       hidden_states, hidden_states_dims,
       attention_mask, attention_mask_dims,
@@ -1937,7 +1933,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
       dense_weights, dense_weights_dims,
       dense_bias,
       /* init params */
-      layer_idx,
+      i,
       sin_cached, sin_cached_dims,
       cos_cached, cos_cached_dims,
       rotary_emb_dim,
@@ -1945,14 +1941,14 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
       attn_output, attn_output_dims,
       past_keys, past_keys_dims,
       past_values, past_values_dims
-    )
+    );
 
     // write kv dims to memory aswell
-    datatype *kv_ptr;
+    uint32_t *kv_ptr;
     kv_ptr = (uint32_t*)((uint8_t*)past_keys + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
-    for (int j = 0; j < past_keys_dims; j++) { kv_ptr[j] = past_keys_dims[j]; }
+    for (int j = 0; j < past_keys_dims.size(); j++) { kv_ptr[j] = past_keys_dims[j]; }
     kv_ptr = (uint32_t*)((uint8_t*)past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
-    for (int j = 0; j < past_values_dims; j++) { kv_ptr[j] = past_values_dims[j]; }
+    for (int j = 0; j < past_values_dims.size(); j++) { kv_ptr[j] = past_values_dims[j]; }
 
     if (i < DECODERS-1) {
       // update input
@@ -1974,7 +1970,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 }
 
 Qnn_ErrorHandle_t finalize(const CustomOp* operation) {
-  QNN_CUSTOM_BE_ENSURE_EQ(operation->numInput(), 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(operation->numInput(), 7, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
   QNN_CUSTOM_BE_ENSURE_EQ(operation->numOutput(), 1, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   /**
@@ -2014,7 +2010,7 @@ Qnn_ErrorHandle_t validateOpConfig(Qnn_OpConfig_t opConfig) {
   QNN_CUSTOM_BE_ENSURE_EQ(
       strcmp(opConfig.v1.typeName, "Decode"), 0, QNN_OP_PACKAGE_ERROR_INVALID_ARGUMENT)
 
-  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 6, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
+  QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfInputs, 7, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
   QNN_CUSTOM_BE_ENSURE_EQ(opConfig.v1.numOfOutputs, 1, QNN_OP_PACKAGE_ERROR_VALIDATION_FAILURE)
 
   return QNN_SUCCESS;
