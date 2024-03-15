@@ -40,15 +40,13 @@ typedef uint16_t datatype; // idk if this should be outside the namespace
 #define LARGE_BUFFER_SIZE ATTN_WEIGHTS_SIZE
 #define DATASIZE 2
 
-// CHANGE THESE
-#define DECODER_WEIGHT_SIZE 78671361
-// #define DECODER_WEIGHT_DIMS_SIZE 10
-// #define DECODER_INIT_PARAMS_SIZE 10
+#define DECODER_WEIGHT_SIZE 78671360
+#define LM_WEIGHTS_SIZE 131128320
 
 // DECODER WEIGHTS
 
 
-#define DECODERS 3
+#define DECODERS 4
 
 // taken from : https://stackoverflow.com/questions/1659440/32-bit-to-16-bit-floating-point-conversion/60047308#60047308
 typedef unsigned short ushort;
@@ -1839,19 +1837,19 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 
   std::vector<uint64_t> decoder_weight_offsets = {0};
   for (int i = 0; i < decoder_weight_tensor_sizes.size() - 1; i++) {
-    uint64_t offset = decoder_weight_tensor_offsets.end()[-1];
+    uint64_t offset = decoder_weight_offsets.end()[-1];
     offset += decoder_weight_tensor_sizes[i];
-    decoder_weight_tensor_offsets.push_back()
+    decoder_weight_offsets.push_back(offset);
   }
 
   
-  uint64_t total_decoder_weight_tensor_size = 1;
+  uint64_t total_decoder_weight_tensor_size = 0;
   for (auto i : decoder_weight_tensor_sizes) {
     total_decoder_weight_tensor_size += i;
   }
   std::cout << "1 individual decoder weight size: " 
             << total_decoder_weight_tensor_size << "\n";
-  // probably wanna put an insert statement with the macro
+  // probably wanna put an assert statement with the macro
 
   // set outputs
   attn_output = (datatype*)UdoOutput;
@@ -1882,33 +1880,33 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     /* Decoder Weights */
     // data
     input_layernorm_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[0]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[0]) * DECODERS];
     input_layernorm_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[1]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[1]) * DECODERS];
     q_proj_weight = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[2]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[2]) * DECODERS];
     q_proj_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[3]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[3]) * DECODERS];
     k_proj_weight = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[4]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[4]) * DECODERS];
     k_proj_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[5]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[5]) * DECODERS];
     v_proj_weight = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[6]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[6]) * DECODERS];
     v_proj_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[7]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[7]) * DECODERS];
     dense_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[8]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[8]) * DECODERS];
     dense_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[9]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[9]) * DECODERS];
     fc1_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[10]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[10]) * DECODERS];
     fc1_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[11]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[11]) * DECODERS];
     fc2_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[12]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[12]) * DECODERS];
     fc2_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_tensor_offsets[13]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[13]) * DECODERS];
 
     void PhiDecoderLayer_16f_cpu(
       /* inputs */
