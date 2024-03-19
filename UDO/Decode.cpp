@@ -1023,6 +1023,7 @@ void apply_rotary_pos_emb_32f(
     gather_32f(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     gather_32f(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
+    std::cout << "unsqueeze_dim: " << unsqueeze_dim << "\n";
     cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
     sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1);
     printV("cos_buff_dims", cos_buff_dims);
@@ -1109,6 +1110,7 @@ void apply_rotary_pos_emb_16f_cpu(
     allocate_32f(sin_q, sin, sin_dims);
     allocate_32f(q_embed_q, q_embed, q_embed_dims);
     allocate_32f(k_embed_q, k_embed, k_embed_dims);
+    std::cout << "calling apply_rot_pos_emb_32f\n";
     apply_rotary_pos_emb_32f(
     q, q_dims, k, k_dims, cos, cos_dims, sin, sin_dims, 
     position_ids, unsqueeze_dim, q_embed, q_embed_dims, k_embed, k_embed_dims);
@@ -1263,7 +1265,7 @@ void PhiAttention_16f_cpu(
         buff_1, buff_2, buff_3,
         hidden_states_dims, v_proj_weights_dims, value_states_dims);
     
-    
+    printV("value_states after before reshape:", value_states_dims);
     // reshape
     query_states_dims = std::vector<uint32_t>{
         (uint32_t)bsz, (uint32_t)q_len, (uint32_t)num_heads, (uint32_t)head_dim};
@@ -1735,10 +1737,16 @@ void LM_Head_16f(
 
 
 // initalizes a vector to 4 values
-void init_dims_4_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr) {
+void init_dims_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr, int num) {
   vec = std::vector<uint32_t>();
   uint32_t* ptr_32 = (uint32_t*)ptr;
-  for (int i = 0; i < 4; i++) { vec.push_back(ptr_32[i]); }
+  std::cout << "grabbing dimensions: ";
+  assert(num <= 4);
+  for (int i = 4 - num; i < 4; i++) { 
+    std::cout << ptr_32[i] << " ";
+    vec.push_back(ptr_32[i]); 
+    }
+    std::cout << "\n";
 }
 
 
@@ -1753,15 +1761,6 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   std::cout << "depth: " << depth << "\n";
 
   // this appears to work
-  float* out = (float*)m_Outputs->data;
-  for (int i = 0; i < depth; i++) {
-    out[i] = i+1;
-  }
-
-
-  std::cout << "4th input size: " << operation->getInput(4)->currentDimensions[rank-1];
-  char* in = (char*)operation->getInput(4)->data;
-  in[0] = 'K';
 
   ////////////////////////////////////////////////////////////
 
@@ -1842,11 +1841,17 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   // data
   hidden_states = (datatype*)Attn_And_Kv_In;
   attention_mask = (float*)AttentionMask;
-  int* ptr_32 = (int*)(&Position_Ids_1[MAX_SEQ_LEN]);
-  for (int i = 0; i < 4; i++) { position_ids.push_back(ptr_32[i]); }
+  int* ptr_32 = (int*)(&Position_Ids_1[MAX_SEQ_LEN * 4]);
+  int pos_ids_length = ptr_32[3];
+  std::cout << "pos_ids_length: " << pos_ids_length << "\n";
+  ptr_32 = (int*)(Position_Ids_1);
+  for (int i = 0; i < pos_ids_length; i++) {
+    position_ids.push_back(ptr_32[i]);
+  }
   // dims
-  init_dims_4_uint32_t(hidden_states_dims, (uint8_t*)hidden_states + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
-  init_dims_4_uint32_t(attention_mask_dims, (uint8_t*)attention_mask + (MAX_SEQ_LEN * MAX_SEQ_LEN * 4));
+  std::cout << "calling init_dims_4_uint32_t\n";
+  init_dims_uint32_t(hidden_states_dims, (uint8_t*)hidden_states + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE), 3);
+  init_dims_uint32_t(attention_mask_dims, (uint8_t*)(attention_mask) + (MAX_SEQ_LEN * MAX_SEQ_LEN * 4), 4);
   input_layernorm_weights_len = HIDDEN_SIZE;
   decoder_eps = 1e-5;
   q_proj_weights_dims = std::vector<uint32_t> {HIDDEN_SIZE, HIDDEN_SIZE};
@@ -1894,6 +1899,20 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   copyTensor_16f(hidden_states, io_buff, hidden_states_dims); // copy input into buffer
   hidden_states = io_buff;
 
+    std::cout << "-----LIST OF INITIAL DIMS------\n";
+    printV("attention_mask", attention_mask_dims);
+    // printV("position_ids", position_ids);
+    // printV("input_layernorm_weights_len", input_layernorm_weights_len);
+    printV("fc1_weights", fc1_weights_dims);
+    printV("fc2_weights", fc2_weights_dims);
+    printV("q_proj_weights", q_proj_weights_dims);
+    printV("k_proj_weights", k_proj_weights_dims);
+    printV("v_proj_weights", v_proj_weights_dims);
+    printV("dense_weights", dense_weights_dims);
+    printV("sin_cached", sin_cached_dims);
+    printV("cos_cached", cos_cached_dims);
+
+    std::cout << "entering for-loop:";
  
   for (uint64_t i = 0; i < DECODERS; i++) {
 
@@ -1908,8 +1927,8 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
 
     // dims
     // may overflow
-    init_dims_4_uint32_t(old_past_keys_dims, (uint8_t*)old_past_keys + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
-    init_dims_4_uint32_t(old_past_values_dims, (uint8_t*)old_past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE));
+    init_dims_uint32_t(old_past_keys_dims, (uint8_t*)old_past_keys + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE), 4);
+    init_dims_uint32_t(old_past_values_dims, (uint8_t*)old_past_values + (MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE), 4);
     if (old_past_keys_dims.end()[-1] == 0) { old_past_keys_dims = std::vector<uint32_t>(); }
     if (old_past_values_dims.end()[-1] == 0) { old_past_values_dims = std::vector<uint32_t>(); }
     /* Decoder Weights */
