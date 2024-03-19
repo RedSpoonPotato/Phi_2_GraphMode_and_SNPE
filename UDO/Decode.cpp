@@ -568,6 +568,10 @@ void truncate_16f(
         if (colon_lefts[i]) { indice_end[dims_to_split[i]] = values[i] - 1; }
         else                { indice_start[dims_to_split[i]] = values[i]; }
     }
+
+    for (int i=0;i<4;i++) {std::cout << indice_start[i] << " ";}
+    for (int i=0;i<4;i++) {std::cout << indice_end[i] << " ";}
+
     // writing output
     unsigned long long elements_written = 0;
     unsigned long long dim_offsets[4] = {1, 1, 1, 1};
@@ -669,6 +673,7 @@ void rotary_emb_16f(
     std::vector<int> colon_lefts = {1};
     std::cout << "\tCalling truncate()\n";
     printV("x", x_dims);
+    std::cout << "\tseq_len in truncate: " << seq_len << "\n";
     truncate_16f(
         cos_cached, cos_cached_dims, cos, cos_dims, 
         dims_to_split, // outer dim
@@ -1020,6 +1025,9 @@ void apply_rotary_pos_emb_32f(
     std::vector<uint32_t> cos_buff_dims, sin_buff_dims;
     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     std::cout << "cos[0]: " << cos[0] << "\n";
+    printV("cos_dims", cos_dims);
+    for (auto i : position_ids) {std::cout << i << ", ";}
+    std::cout << "\n";
     gather_32f(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     gather_32f(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
@@ -1317,7 +1325,7 @@ void PhiAttention_16f_cpu(
     std::vector<uint32_t> sin_buff_dims;
     std::vector<uint32_t> cos_buff_dims;
     printV("value_states", value_states_dims);
-    std::cout << "calling rot_emb()\n";
+    std::cout << "calling rot_emb() \n";
     rotary_emb_16f(
         value_states_buff_2, value_states_dims, kv_seq_len,
         sin_cached, sin_cached_dims, cos_cached, cos_cached_dims,
@@ -1860,8 +1868,8 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   dense_weights_dims = std::vector<uint32_t> {HIDDEN_SIZE, HIDDEN_SIZE};
   fc1_weights_dims = std::vector<uint32_t> {HIDDEN_SIZE, INTERMEDIATE_SIZE};
   fc2_weights_dims = std::vector<uint32_t> {INTERMEDIATE_SIZE, HIDDEN_SIZE};
-  sin_cached_dims = std::vector<uint32_t> {32, MAX_SEQ_LEN};
-  cos_cached_dims = std::vector<uint32_t> {32, MAX_SEQ_LEN};
+  sin_cached_dims = std::vector<uint32_t> {MAX_SEQ_LEN, 32};
+  cos_cached_dims = std::vector<uint32_t> {MAX_SEQ_LEN, 32};
 
 
   std::vector<uint64_t> decoder_weight_tensor_sizes {
