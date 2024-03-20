@@ -1,5 +1,3 @@
-The two directories of this repo are UDO and GM.
-
 ## GM: For showing off the tensorflow graphmode code
 File guide:
 
@@ -27,4 +25,4 @@ File guide:
   
   ops.cpp: standalone C++ file that can be compiled and run on its own to demonstrate the ability for the Decoder code to run (Does have bugs, see Decode.cpp for latest verison)
   
-  test.cpp: C++ file for using SNPE-api to launch entire, however it currently does segfault.
+  test.cpp: C++ file for using SNPE-api to launch entire model, however it currently does segfault.
