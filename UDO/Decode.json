@@ -1,0 +1,24 @@
+{
+    "UdoPackage_0":
+    {
+        "Operators": [
+            {
+                "type": "Decode",
+                "inputs":[
+                    {"name":"attn_and_kv_in", "data_type":"FLOAT_32", "static":false},
+                    {"name":"mask", "data_type":"FLOAT_32", "static":false},
+                    {"name":"position_ids", "data_type":"FLOAT_32", "static":false},
+                    {"name":"decoder_weights", "data_type":"FLOAT_32", "static":false},
+                    {"name":"lm_head_weights", "data_type":"FLOAT_32", "static":false},
+                    {"name":"sin_cached", "data_type":"FLOAT_32", "static":false},
+                    {"name":"cos_cached", "data_type":"FLOAT_32", "static":false}
+                ],
+                "outputs":[
+                    {"name":"attn_and_kv_out", "data_type": "FLOAT_32"}
+                ],
+                "core_types": ["CPU"]
+            }
+        ],
+        "UDO_PACKAGE_NAME": "DecodePackage"
+    }
+}
