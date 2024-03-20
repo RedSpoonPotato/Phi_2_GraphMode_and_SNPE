@@ -70,6 +70,7 @@ cp package.zip /home/kernal1/QM_Sandbox/SNPE_sandbox/dyn_linear/.
 # # # need to run only once per session
 # export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/kernal1/QM_Sandbox/Phi_2/desktop/udo/unified/DecodePackage/libs/x86-64_linux_clang/
 
-# snpe-net-run --container UnifiedPhiDecodersAndLogits.dlc \
-#     --input_list inputs.txt \
-#     --udo_package_path DecodePackage/libs/x86-64_linux_clang/libUdoDecodePackageReg.so
+# use to launch executable (dont change the files names or order)
+./linear_test_1 -m UnifiedPhiDecodersAndLogits.dlc -o Output_1 \
+    -i hidden_states_and_kv.dat -i attention_mask.dat -i position_ids_1.dat -i decoder_weights_1.dat -i lm_head_weights_1.dat \
+    -i sin.dat -i cos.dat
