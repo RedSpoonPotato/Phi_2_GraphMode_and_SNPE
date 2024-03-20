@@ -1,0 +1,44 @@
+Notable Requirements:
+	Over 16GB of Memory
+	Ubuntu 20.02
+	Python 3.8
+	TensorFlow 2.13
+	Qualcomm Neural Processing SDK (latest version)
+	Qualcomm AI Engine Direct SDK
+	python transformers package
+	g++ 9.4.1
+	Android NDK
+	
+
+Instructions for building SNPE model to use Decode.cpp as an UDO:
+	Activate Python Virtual Enviorment
+	
+	Activate SNPE setup (see Neural Processing documentation)
+	
+	Activate QNN setup (see AI Engine Direct documentation)
+	
+	Navigate to $SNPE_ROOT/docs/SNPE/html/general/tutorial_inceptionv3_udo.html and follow tutorial on building UDO
+		- Use Decode.json in package generation step
+		- Use compile.sh along with decoder.cpp to build tensorflow custom operation .so file
+		- To generate model, use Unified_Phi_Model.py, then follow dlc generation step in documentation
+			- During DLC conversion step, you will probably have to modify $SNPE_ROOT/bin/x86_64-linux-clang/snpe-tensorflow-to-dlc
+				to add the tf.load_op_library("./Decode.so"), as was done in Unified_Phi_Model.py
+			- See script.sh for an example
+		- Once package has been generated, replace (package)/jni/src/CPU/src/ops/Decode.cpp with Decode.cpp in the github repo, then compile
+		- add proper .so files to $LD_LIBRARY_PATH (see script.sh or $SNPE_ROOT/docs/SNPE/html/general/tutorial_inceptionv3_udo.html)
+		
+	Navigate to $SNPE_ROOT/docs/SNPE/html/general/cplus_plus_tutorial.html and follow example
+	
+	Copy the files to build into a different directory, then change main.cpp to the test.cpp included in the github repo (this will serve as main)
+		- Modify makefile to account for test.cpp
+		- When building, make sure there are no other .h/.cpp files in that directory that are unrelated to the example
+		
+	Build the executable
+	
+	Generate the weight files by using the code layed out in workspace.py in the UDO github.repo
+		- be aware size and name is crucial (see bottom of script.sh)
+	
+	Generate other input files using Unified_Phi_Model.py
+		- be aware size and name is crucial (see bottom of script.sh)
+	
+	Launch exectuable (see bottom of script.sh) (executable does not have to be called "linear_test_1")
