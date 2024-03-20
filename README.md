@@ -1,7 +1,6 @@
 The two directories of this repo are UDO and GM.
 
-## GM: For showing off the tensorflow graphmode code. The Phi-2 model code is found within my_phi_gm.py. 
-
+## GM: For showing off the tensorflow graphmode code
 File guide:
 
   bert.py: contains operations for Bert, some of those are used in Phi
