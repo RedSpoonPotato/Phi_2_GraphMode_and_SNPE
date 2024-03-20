@@ -1,3 +1,5 @@
+# NOTE: CURRENTLY launching the UDO segfaults towards the end of its computation, but compiling and running ops.cpp does work (however it is computationally incorrect and outdated compared to Decode.cpp)
+
 ## GM: For showing off the tensorflow graphmode code
 File guide:
 
