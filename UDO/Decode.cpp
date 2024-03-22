@@ -369,8 +369,8 @@ void linear_Nd_16f_cpu(
     // matmul
     matmul_Nd_32f(ten, weight, out, ten_dims, weight_dims);
     if (bias_q == nullptr) { return; }
-    // reuse ten buffer to hold 32-bit bias
-    float* bias = ten;
+    // reuse weight buffer to hold 32-bit bias
+    float* bias = weight;
     std::vector<uint32_t> bias_dims = {weight_dims.end()[-1]};
     fp16_to_fp32((ushort*)bias_q, (float*)bias, bias_dims);
     // bias
@@ -1522,11 +1522,18 @@ void PhiAttention_16f_cpu(
         HIDDEN_SIZE};
     
     std::cout << "Calling Final Dense Layer\n";
+    printV("attn_weights_dims", attn_weights_dims);
+    printV("dense_weights_dims", dense_weights_dims);
+    printV("attn_output_dims", attn_output_dims);
+
     // dense layer
     linear_Nd_16f_cpu(
         attn_weights, dense_weights, dense_bias, attn_output,
         buff_1, buff_2, buff_3,
         attn_weights_dims, dense_weights_dims, attn_output_dims);
+    
+
+
 
     std::cout << "Freeing PhiAttentionBuffers\n";
     // freeing
@@ -1715,6 +1722,8 @@ void LM_Head_16f(
     /* output */
     uint32_t& token_selected
 ) {
+    // buffers 2,3,5 have to be big to hold vocab tensors
+
     // layer norm
     layernorm_Nd_16f_cpu(
         hidden_states, final_layernorm_weights, final_layernorm_bias, buff_4,
@@ -1726,20 +1735,23 @@ void LM_Head_16f(
         buff_4, lm_head_weights, lm_head_bias, buff_5,
         buff_1, buff_2, buff_3,
         hidden_states_dims, lm_head_weights_dims, temp_dims);
+    std::cout << "finished with the final linear!\n";
     // argmax
     // temp_dims: 1, 1, seq_len, vocab_size or 1,seq-len,vocab_size
-    fp16_to_fp32((ushort*)buff_5, buff_1, temp_dims);
+    fp16_to_fp32((ushort*)buff_5, buff_2, temp_dims);
     uint32_t word_index = temp_dims.end()[-2] - 1;
     uint32_t vocab_size = temp_dims.end()[-1];
     uint32_t offset = word_index * vocab_size;
     float maxElt = std::numeric_limits<float>::lowest();
     uint32_t argmax = 0;
+    std::cout << "going into loop\n";
     for (int i = 0; i < vocab_size; i++) {
-        if (maxElt < buff_1[i + offset]) {
-            maxElt = buff_1[i + offset];
+        if (maxElt < buff_2[i + offset]) {
+            maxElt = buff_2[i + offset];
             argmax = i;
         }
     }
+    std::cout << "token selected: " << token_selected << "\n";
     token_selected = argmax;
 }
 
@@ -1924,6 +1936,8 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
  
   for (uint64_t i = 0; i < DECODERS; i++) {
 
+    std::cout << "\n------------" << i << "------------\n";
+
     /* inputs */
     // data
     old_past_keys =   (datatype*)&Attn_And_Kv_In[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
@@ -1942,33 +1956,33 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     /* Decoder Weights */
     // data
     input_layernorm_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[0]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[0]) * DATASIZE];
     input_layernorm_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[1]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[1]) * DATASIZE];
     q_proj_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[2]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[2]) * DATASIZE];
     q_proj_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[3]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[3]) * DATASIZE];
     k_proj_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[4]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[4]) * DATASIZE];
     k_proj_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[5]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[5]) * DATASIZE];
     v_proj_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[6]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[6]) * DATASIZE];
     v_proj_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[7]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[7]) * DATASIZE];
     dense_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[8]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[8]) * DATASIZE];
     dense_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[9]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[9]) * DATASIZE];
     fc1_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[10]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[10]) * DATASIZE];
     fc1_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[11]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[11]) * DATASIZE];
     fc2_weights = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[12]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[12]) * DATASIZE];
     fc2_bias = (datatype*)&Decoder_Weights[
-      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[13]) * DECODERS];
+      (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[13]) * DATASIZE];
 
     PhiDecoderLayer_16f_cpu(
       /* inputs */
@@ -2052,10 +2066,13 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
     token_selected
   );
 
+    std::cout << "finsihed LM head\n";
+
   // write the token as the first 4 bytes of the output buffer
   ((uint32_t*)UdoOutput)[0] = token_selected;
 
-  
+    std::cout << "freeing\n";
+
   free(buff_1);
   free(buff_2);
   free(buff_3);
