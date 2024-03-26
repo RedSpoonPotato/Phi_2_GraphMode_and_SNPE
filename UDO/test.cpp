@@ -112,6 +112,9 @@ struct ModelRunetime {
 
 };
 
+// generate mask and position_ids; also iteration_num should first be 0
+template <typename T>
+void prepareInputs(T* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num);
 
 // float
 #define BATCH_SIZE 1
@@ -190,6 +193,11 @@ int main(int argc, char* argv[]) {
    int udo_load = Snpe_Util_AddOpPackage(udo_name.c_str());
    std::cout << "udo_load: " << udo_load << "\n";
    assert(udo_load == 1);
+
+
+   /* pos_ids and masking vars */
+   uint32_t seq_len = 11;
+   uint32_t iteration_num = 0;
    
 
    std::cout << "--intialization stage--\n";
@@ -212,8 +220,7 @@ int main(int argc, char* argv[]) {
                                              useUserSuppliedBuffers, (models[i].inputs[0]+":0").c_str(), new_dims);
       // new_dims = {1,1,1,12};
       // startTime = std::chrono::high_resolution_clock::now();
-      runtimes[i].snpe = setBuilderOptions(runtimes[i].container, runtimes[i].runtime, 
-                                             useUserSuppliedBuffers, (models[i].inputs[0]+":0").c_str(), new_dims);
+
       // part1EndTime = std::chrono::high_resolution_clock::now();
       // durationPart1 = std::chrono::duration_cast<std::chrono::milliseconds>(part1EndTime - startTime);
       // std::cout << "Time taken to build a second time: " << durationPart1.count() << " milliseconds" << std::endl;
@@ -247,7 +254,7 @@ int main(int argc, char* argv[]) {
             if (j == 1) {
                loadByteDataFile(models[i].inputs[j] + ".dat", runtimes[i].applicationInputBuffers[models[i].inputs[j] + ":0"]);
                }
-            }
+         }
          std::cout << "calling createUserBuffer()\n";
          createUserBuffer(runtimes[i].inputMap, runtimes[i].applicationInputBuffers,
             runtimes[i].input_user_buff_vec, runtimes[i].snpe, (models[i].inputs[j] + ":0").c_str());
@@ -268,6 +275,12 @@ int main(int argc, char* argv[]) {
          loadInputUserBuffer(runtimes[i].applicationInputBuffers, runtimes[i].snpe, fileLine);
       }
    }
+
+   // applying masking and position_ids
+   prepareInputs(
+      (float*)runtimes[0].applicationInputBuffers["attention_mask:0"].data(),
+      (int*)runtimes[0].applicationInputBuffers["position_ids_1:0"].data(),
+      seq_len, iteration_num);
 
 
    // it seems that these vectors can be resized dynmically, and that SNPE goes by dlc input/output size rather than vector size
@@ -691,4 +704,57 @@ void SaveITensor(const std::string& path, const zdl::DlSystem::ITensor* tensor)
          std::exit(EXIT_FAILURE);
       }
    }
+}
+
+
+// generate mask and position_ids; also iteration_num should first be 0
+template <typename T>
+void prepareInputs(
+    T* mask, 
+    int* position_ids,
+    uint32_t seq_len, uint32_t iteration_num
+    ) 
+{
+    // must adjust indexing if this is not true
+    assert(sizeof(T) == 4);
+    if (iteration_num == 0) {
+        // set position_ids shape
+        position_ids[MAX_SEQ_LEN + 0] = 1;
+        position_ids[MAX_SEQ_LEN + 1] = 1;
+        position_ids[MAX_SEQ_LEN + 2] = 1;
+        position_ids[MAX_SEQ_LEN + 3] = seq_len;
+        // set position_ids
+        for (int i = 0; i < seq_len; ++i) { position_ids[i] = i; }
+        // set mask shape
+        uint32_t* ptr32 = (uint32_t*)mask;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = seq_len;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
+        // set mask
+        T lowest = std::numeric_limits<T>::lowest();
+        for (uint32_t row = 0; row < seq_len; row++) {
+            for (uint32_t col = 0; col < seq_len; col++) {
+                if (row >= col) { mask[row*seq_len + col] = 0; }
+                else            { mask[row*seq_len + col] = lowest; } 
+            }
+        }
+    }
+    else {
+        // set position_ids shape
+        position_ids[MAX_SEQ_LEN + 0] = 1;
+        position_ids[MAX_SEQ_LEN + 1] = 1;
+        position_ids[MAX_SEQ_LEN + 2] = 1;
+        position_ids[MAX_SEQ_LEN + 3] = 1;
+        // set position_ids
+        position_ids[0] = seq_len-1;
+        // set mask shape
+        uint32_t* ptr32 = (uint32_t*)mask;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
+        // set mask
+        for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
+    }
 }
