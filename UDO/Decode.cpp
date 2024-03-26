@@ -281,7 +281,7 @@ void matmul_Nd_32f(const float* ten1, const float* ten2, float* out,
     assert(cols1 == rows2); // rule of matrix multiplication
     assert(dims1[0] == dims1[0]);
     assert(dims1.size() == 3);
-    int offset = dims1[1] * dims1[2];
+    int offset = dims1.end()[-2] * dims2.end()[-1];
     for (uint32_t z = 0; z < dims1[0]; z++) {
         // 2d matmul algorithm
         for (uint32_t i = 0; i < rows1; ++i) {
@@ -1478,6 +1478,7 @@ void PhiAttention_16f_cpu(
 
     // masking
     std::cout << "Calling Masking\n";
+    printV("attention_mask_dims", attention_mask_dims);
     add_32f_general(
         buff_3, attention_mask, buff_1,
         attn_weights_dims, attention_mask_dims, attn_output_dims);
@@ -1983,6 +1984,7 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[12]) * DATASIZE];
     fc2_bias = (datatype*)&Decoder_Weights[
       (i * DECODER_WEIGHT_SIZE + decoder_weight_offsets[13]) * DATASIZE];
+
 
     PhiDecoderLayer_16f_cpu(
       /* inputs */
