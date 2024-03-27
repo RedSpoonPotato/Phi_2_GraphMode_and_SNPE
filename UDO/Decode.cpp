@@ -121,10 +121,10 @@ void div_32f(const float* ten1, const float* ten2, float* out, const std::vector
 }
 
 // vector print function
-void printV(const std::string& str, const std::vector<uint32_t>& vec) {
+template <typename T>
+void printV(const std::string& str, const std::vector<T>& vec) {
     std::cout << str;
     std::cout << ": [";
-    // for (auto i: vec) {std::cout << i << ", ";}
     for (int i = 0; i < vec.size(); i++) {
         std::cout << vec[i];
         if (i != vec.size()-1) { std::cout << ", ";}
@@ -1752,8 +1752,8 @@ void LM_Head_16f(
             argmax = i;
         }
     }
-    std::cout << "token selected: " << token_selected << "\n";
     token_selected = argmax;
+    std::cout << "token selected: " << token_selected << "\n";
 }
 
 
