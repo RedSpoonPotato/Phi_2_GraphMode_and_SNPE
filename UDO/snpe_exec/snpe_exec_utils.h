@@ -187,13 +187,93 @@ void intialize_input_buffers(
     }
 }
 
+template <typename T>
+void resetKV(T* in) {
+    uint8_t* in_8 = (uint8_t*)in;
+    T* in_past_keys;
+    T* in_past_values;
+    uint32_t* in_key_dims;
+    uint32_t* in_value_dims;
+    for (uint64_t i = 0; i < DECODERS; i++) {
+        in_past_keys =   (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+        in_past_values = (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+        in_key_dims = (uint32_t*)(&in_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
+        in_value_dims = (uint32_t*)(&in_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
+        for (uint64_t j = 0; j < 4; j++) {
+            in_key_dims[j]   = 0;
+            in_value_dims[j] = 0;
+        }
+    }
+}
+
+template <typename T>
+size_t multiReduce(const std::vector<T>& dims) {
+    size_t total_elements = 1;
+    for (auto i : dims) { total_elements *= i; }
+    return total_elements;
+}
+
+void init_dims_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr, int num) {
+  vec = std::vector<uint32_t>();
+  uint32_t* ptr_32 = (uint32_t*)ptr;
+  std::cout << "grabbing dimensions: ";
+  assert(num <= 4);
+  for (int i = 4 - num; i < 4; i++) { 
+    std::cout << ptr_32[i] << " ";
+    vec.push_back(ptr_32[i]); 
+    }
+    std::cout << "\n";
+}
+
+template <typename T>
+void copyKV(T* in, T* out) {
+    uint8_t* in_8 = (uint8_t*)in;
+    uint8_t* out_8 = (uint8_t*)out;
+    T *in_past_keys, *in_past_values, *out_past_keys, *out_past_values;
+    uint32_t *in_key_dims, *in_value_dims, *out_key_dims, *out_value_dims;
+    std::vector<uint32_t> key_dims_vec;
+    std::vector<uint32_t> val_dims_vec;
+    size_t k_size, v_size;
+
+    for (uint64_t i = 0; i < DECODERS; i++) {
+        /* calculating locations */
+        in_past_keys =   (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+        in_past_values = (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+        out_past_keys =   (T*)&out_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+        out_past_values = (T*)&out_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+
+        in_key_dims = (uint32_t*)(&in_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
+        in_value_dims = (uint32_t*)(&in_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
+        out_key_dims = (uint32_t*)(&out_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
+        out_value_dims = (uint32_t*)(&out_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
+
+        /* copying dims */
+        for (uint64_t j = 0; j < 4; j++) {
+            out_key_dims[j] = in_key_dims[j];
+            out_value_dims[j] = in_value_dims[j];
+        }
+
+        /* ensure KV cache is not empty */
+        assert(in_key_dims[3] != 0);
+        assert(in_value_dims[3] != 0);
+
+        /* grabbing dims */
+        init_dims_uint32_t(key_dims_vec, (uint8_t*)in_key_dims , 4);
+        init_dims_uint32_t(val_dims_vec, (uint8_t*)in_value_dims , 4);
+
+        /* writing data */
+        k_size = multiReduce(key_dims_vec);
+        v_size = multiReduce(val_dims_vec);
+        assert(k_size != 0 && v_size != 0);
+        for (size_t j = 0; j < k_size; j++) {out_past_keys[j] = in_past_keys[j];}
+        for (size_t j = 0; j < v_size; j++) {out_past_values[j] = in_past_values[j];}
+    }
+}
+
 
 // generate mask and position_ids; also iteration_num should first be 0
-template <typename T>
-void prepareInputs(T* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num)
+void prepareInputs(float* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num)
 {
-    // must adjust indexing if this is not true
-    assert(sizeof(T) == 2);
     if (iteration_num == 0) {
         // set position_ids shape
         position_ids[MAX_SEQ_LEN + 0] = 1;
@@ -204,14 +284,14 @@ void prepareInputs(T* mask, int* position_ids, uint32_t seq_len, uint32_t iterat
         for (int i = 0; i < seq_len; ++i) { position_ids[i] = i; }
         std::cout << "set mask1\n";
         // set mask shape
-        uint16_t* ptr16 = (uint16_t*)mask;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = (uint16_t)seq_len;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = (uint16_t)seq_len;
+        uint32_t* ptr32 = (uint32_t*)mask;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = seq_len;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
         // set mask
         std::cout << "writing mask\n";
-        T lowest = std::numeric_limits<T>::lowest();
+        float lowest = std::numeric_limits<float>::lowest();
         for (uint32_t row = 0; row < seq_len; row++) {
             for (uint32_t col = 0; col < seq_len; col++) {
                 std::cout << "(row, col): (" << row << ", " << col << ")\n";
@@ -230,11 +310,11 @@ void prepareInputs(T* mask, int* position_ids, uint32_t seq_len, uint32_t iterat
         position_ids[0] = seq_len-1;
         std::cout << "set mask2\n";
         // set mask shape
-        uint16_t* ptr16 = (uint16_t*)mask;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = 1;
-        ptr16[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = (uint16_t)seq_len;
+        uint32_t* ptr32 = (uint32_t*)mask;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = 1;
+        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
         // set mask
         for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
     }
