@@ -64,9 +64,10 @@ void writeEmbedding(
     /* write output shape to output buffer */
     std::cout << "writing ptr\n";
     uint32_t* ptr = (uint32_t*)&output[MAX_SEQ_LEN * HIDDEN_SIZE];
-    ptr[0] = 1;
+    ptr[0] = 1; // should not be read by Decoder.cpp
     ptr[1] = 1;
     ptr[2] = input_ids.size();
+    ptr[3] = HIDDEN_SIZE;
 }
 
 #endif
