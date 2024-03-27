@@ -1,0 +1,52 @@
+# Specify the compiler flags
+# CXX ?= g++
+
+CXXFLAGS += -std=c++11 -fPIC -march=x86-64
+
+# Include paths
+INCLUDES += -I ./
+INCLUDES += -I $(SNPE_ROOT)/include/zdl -I include/ -I $(SNPE_ROOT)/include/SNPE
+
+# Specify the paths to the libraries
+LDFLAGS  += -L $(SNPE_ROOT)/lib/x86_64-linux-clang
+
+# Specify the link libraries
+LLIBS    += -lSNPE 
+
+# Specify the target
+PROGRAM  := main
+SRC_DIR  := ./
+OBJ_DIR  := obj/local/x86_64-linux-clang
+
+# EXCLUDE_FILES := main.cpp embedding.cpp snpe_exec_utils.cpp snpe_tutorial_utils.cpp
+EXCLUDE_FILES := test.cpp
+
+# Specify the source list and the object directories.
+# The source file is in the 'jni' directory to be compatible with the
+# Android NDK structure.
+# Get the list of source files including the directory
+# SRC      := $(wildcard $(SRC_DIR)/*.cpp)
+SRC := $(filter-out $(addprefix $(SRC_DIR)/,$(EXCLUDE_FILES)), $(wildcard $(SRC_DIR)/*.cpp))
+# Generate the output names by substituting the object dir for the source dir
+OBJS     := $(subst $(SRC_DIR),$(OBJ_DIR),$(subst .cpp,.o,$(SRC)))
+
+default: all
+all: $(OBJ_DIR)/$(PROGRAM)
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(OBJ_DIR)
+	$(CXX) -c $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+# $test.o: $(OBJ_DIR)
+# 	$(CXX) -c $(CXXFLAGS) $(INCLUDES) $< -o $@
+
+$(OBJ_DIR)/$(PROGRAM): $(OBJS)
+	$(CXX) $(LDFLAGS) $^ $(LLIBS) -o $@
+
+clean:
+	-rm -f $(OBJS) $(PROGRAM).o
+	-rm -f $(PROGRAM)
+
+$(OBJ_DIR):
+	mkdir -p $(OBJ_DIR)
+
+.PHONY: default clean
