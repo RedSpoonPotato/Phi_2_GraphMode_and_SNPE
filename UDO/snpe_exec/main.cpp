@@ -17,6 +17,9 @@
 
 int main(int argc, char* argv[]) {
 
+    // change this later when you make multiple calls
+    bool kv_empty = true;
+
     /* set debug flag */
     bool debug = false;
     #ifdef DEBUG
@@ -70,38 +73,45 @@ int main(int argc, char* argv[]) {
     #ifdef DEBUG
         std::cout << "execution stage\n";
     #endif
-    uint32_t seq_len;
-    uint32_t next_token;
 
     /* tokenizer encode */
     std::string input_txt;
     // "What is your favorite color?. Mine is red."
-    std::vector<uint32_t> tokens = {
+    std::vector<uint32_t> token_collection = {
         2061, 318, 534, 4004, 3124, 30, 13, 11517, 318, 2266, 13
     };
+    std::vector<uint32_t> tokens = token_collection;
+
+    uint32_t tot_seq_len = tokens.size();
+    uint32_t next_token;
+
+    /* if kv_cache is supposed to be empty, dims should be [0,0,0,0] */
+    if (kv_empty) {
+        resetKV((datatype*)models[0].applicationInputBuffers["hidden_states_and_kv:0"].data());
+    }
 
     for (uint32_t iteration_num = 0; iteration_num < NUM_ITERS; iteration_num++) {
 
         #ifdef DEBUG
             printV("tokens", tokens);
         #endif
-        seq_len = tokens.size();
 
         /* embedding layer */
         writeEmbedding(
             "embed_tokens.dat", 
             tokens, 
             HIDDEN_SIZE, 
-            (datatype*)models[0].applicationOutputBuffers["Output_1:0"].data());
+            (datatype*)models[0].applicationInputBuffers["hidden_states_and_kv:0"].data());
         #ifdef DEBUG
             std::cout << "preparing inputs\n";
         #endif
 
+
         /* generate proper mask and position_ids */
         prepareInputs(
-            (datatype*)(models[0].applicationInputBuffers["attention_mask:0"].data()),
+            (float*)(models[0].applicationInputBuffers["attention_mask:0"].data()),
             (int*)(models[0].applicationInputBuffers["position_ids_1:0"].data()),
-            seq_len, iteration_num);
+            tot_seq_len, iteration_num);
         #ifdef DEBUG
             std::cout << "executing model\n";
         #endif
@@ -109,18 +119,30 @@ int main(int argc, char* argv[]) {
         /* call model */
         models[0].snpe->execute(models[0].inputMap, models[0].outputMap);
 
+        /* write kv cache from out to in */
+        #ifdef DEBUG
+            std::cout << "calling copyKV\n";
+        #endif
+        copyKV(
+            (datatype*)models[0].applicationOutputBuffers["Output_1:0"].data(),
+            (datatype*)models[0].applicationInputBuffers["hidden_states_and_kv:0"].data());
+
         /* grab next token */
-        next_token = *(uint32_t*)models[0].applicationOutputBuffers["Output_1:0"].data();
+        next_token = ((uint32_t*)models[0].applicationOutputBuffers["Output_1:0"].data())[0];
         #ifdef DEBUG
             std::cout << "next token grabbed: " << next_token << "\n";
         #endif
 
         /* insert token */
-        tokens.push_back(next_token);
+        token_collection.push_back(next_token);
+        tokens = std::vector<uint32_t> {next_token};
+
+        tot_seq_len++;
     }
 
     /* tokenizer decode */
 
+    printV("tokens produced:", token_collection);
 }
 
 
