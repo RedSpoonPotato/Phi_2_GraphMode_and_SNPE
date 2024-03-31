@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cmath>
 #include <algorithm>
+#include <iomanip>
 
 #include "CpuBackendUtils.hpp"
 #include "CustomOpPackage.hpp"
@@ -130,6 +131,140 @@ void printV(const std::string& str, const std::vector<T>& vec) {
         if (i != vec.size()-1) { std::cout << ", ";}
     }
     std::cout << "]\n";
+}
+
+bool range(int a, int b, int c) {
+    return (a >= b && a <= c);
+}
+
+void printT(
+    const std::string& str, const std::vector<uint32_t>& dims, const datatype* tensor, 
+    bool precise, size_t max_elem
+    ) {
+    // print dims
+    printV(str, dims);
+    // calculate size of each dimension
+    std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
+    for (int i = dims.size()-2; i >= 0; i--) {
+        uint32_t offset = dims[i] * dim_sizes.end()[-1];
+        dim_sizes.push_back(offset);
+    }
+    // calculate total number of elements
+    size_t tot_elements = 1;
+    for (auto i : dims) { tot_elements *= i; }
+    // print everything
+    for (auto i : dims) { std::cout << "["; }
+    for (size_t i = 0; i < tot_elements; i++) {
+        if (i > max_elem) {break;}
+        for (auto j : dim_sizes) {
+            if (i % j == 0 && i != 0) {
+                std::cout << "]\n[";
+            }
+        }
+        if (precise) { std::cout << std::setprecision(30) 
+            << half_to_float((ushort)tensor[i]) << ", "; }
+        else { std::cout << half_to_float((ushort)tensor[i]) << ", "; }
+    }
+    for (auto i : dims) { std::cout << "]"; }
+    std::cout << "\n";
+}
+
+void printT_Alt(
+    const std::string& str, const std::vector<uint32_t>& dims, const datatype* tensor, 
+    bool precise, size_t max_elem
+    ) {
+    // print dims
+    printV(str, dims);
+    // calculate size of each dimension
+    std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
+    for (int i = dims.size()-2; i >= 0; i--) {
+        uint32_t offset = dims[i] * dim_sizes.end()[-1];
+        dim_sizes.push_back(offset);
+    }
+    // calculate total number of elements
+    size_t tot_elements = 1;
+    for (auto i : dims) { tot_elements *= i; }
+    // print everything
+    for (auto i : dims) { std::cout << "["; }
+    for (size_t i = 0; i < max_elem; i++) {
+       std::cout << half_to_float((ushort)tensor[i]) << ", ";
+    }
+    std::cout << " ... ";
+    for (size_t i = tot_elements-max_elem; i < tot_elements; i++) {
+       std::cout << half_to_float((ushort)tensor[i]) << ", ";
+    }
+    for (auto i : dims) { std::cout << "]"; }
+    std::cout << "\n";
+}
+
+
+void printT_32f(
+    const std::string& str, const std::vector<uint32_t>& dims, const float* tensor, 
+    bool precise, size_t max_elem
+    ) {
+    // print dims
+    printV(str, dims);
+    // calculate size of each dimension
+    std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
+    for (int i = dims.size()-2; i >= 0; i--) {
+        uint32_t offset = dims[i] * dim_sizes.end()[-1];
+        dim_sizes.push_back(offset);
+    }
+    // calculate total number of elements
+    size_t tot_elements = 1;
+    for (auto i : dims) { tot_elements *= i; }
+    // print everything
+    for (auto i : dims) { std::cout << "["; }
+    for (size_t i = 0; i < tot_elements; i++) {
+        if (i > max_elem) {break;}
+        for (auto j : dim_sizes) {
+            if (i % j == 0 && i != 0) {
+                std::cout << "]\n[";
+            }
+        }
+        if (precise) { std::cout << std::setprecision(30) 
+            << tensor[i] << ", "; }
+        else { std::cout << tensor[i] << ", "; }
+    }
+    for (auto i : dims) { std::cout << "]"; }
+    std::cout << "\n";
+}
+
+void printT_32f_Alt(
+    const std::string& str, const std::vector<uint32_t>& dims, const float* tensor, 
+    bool precise, size_t max_elem
+    ) {
+    // print dims
+    printV(str, dims);
+    // calculate size of each dimension
+    std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
+    for (int i = dims.size()-2; i >= 0; i--) {
+        uint32_t offset = dims[i] * dim_sizes.end()[-1];
+        dim_sizes.push_back(offset);
+    }
+    // calculate total number of elements
+    size_t tot_elements = 1;
+    for (auto i : dims) { tot_elements *= i; }
+    // print everything
+    for (auto i : dims) { std::cout << "["; }
+    for (size_t i = 0; i < max_elem; i++) {
+       std::cout << tensor[i] << ", ";
+    }
+    std::cout << " ... ";
+    for (size_t i = tot_elements-max_elem; i < tot_elements; i++) {
+       std::cout << tensor[i] << ", ";
+    }
+    for (auto i : dims) { std::cout << "]"; }
+    std::cout << "\n";
+}
+
+void DownUpCast(float* tensor, std::vector<uint32_t> dims) {
+    size_t tot_elem = 1;
+    for (auto i : dims) { tot_elem *= i; }
+    datatype* temp_buff = (datatype*)malloc(tot_elem * sizeof(datatype));
+    fp32_to_fp16(tensor, temp_buff, dims);
+    fp16_to_fp32(temp_buff, tensor, dims);
+    free(temp_buff);
 }
 
 void add_32f_general(
@@ -1134,7 +1269,7 @@ void apply_rotary_pos_emb_16f_cpu(
 
 void copyTensor_16f(const datatype* ten1, datatype* out, const std::vector<uint32_t>& dims) {
     uint32_t num_elem = 1;
-    for (uint32_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+    for (uint32_t i = 0; i < dims.size(); i++) { num_elem *= dims[i]; }
     for (uint32_t i = 0; i < num_elem; i++) {
         out[i] = ten1[i];
     }
@@ -1142,7 +1277,7 @@ void copyTensor_16f(const datatype* ten1, datatype* out, const std::vector<uint3
 
 void copyTensor_32f(const float* ten1, float* out, const std::vector<uint32_t>& dims) {
     uint32_t num_elem = 1;
-    for (uint32_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+    for (uint32_t i = 0; i < dims.size(); i++) { num_elem *= dims[i]; }
     for (uint32_t i = 0; i < num_elem; i++) {
         out[i] = ten1[i];
     }
@@ -1272,6 +1407,9 @@ void PhiAttention_16f_cpu(
         hidden_states, v_proj_weights, v_proj_bias, value_states_buff,
         buff_1, buff_2, buff_3,
         hidden_states_dims, v_proj_weights_dims, value_states_dims);
+
+    printT_Alt("query_states after linear", query_states_dims, query_states_buff, 
+    false, 5);
     
     printV("value_states after before reshape:", value_states_dims);
     // reshape
@@ -1317,6 +1455,9 @@ void PhiAttention_16f_cpu(
     }
     std::cout << "kv_seq_len:" << kv_seq_len << "\n";
 
+    printT_Alt("query_states after transpose", query_states_dims, query_states_buff_2, 
+    false, 5);
+
     // partial rotary embedding
     // datatype sin_buff[SIN_COS_BUFF_SIZE];
     datatype* sin_buff = (datatype*)malloc(SIN_COS_BUFF_SIZE * sizeof(datatype));
@@ -1333,6 +1474,8 @@ void PhiAttention_16f_cpu(
     std::cout << "finished calling rot_emb()\n";
     printV("sin_buff_dims", sin_buff_dims);
     printV("cos_buff_dims", cos_buff_dims);
+    printT_Alt("sin_buff after rot_emb_16f:", sin_buff_dims, sin_buff,
+    false, 5);
     //rotations
     // datatype query_rot_buff[QUERY_STATES_BUFF_SIZE];
     datatype* query_rot_buff = (datatype*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(datatype));
@@ -1376,6 +1519,10 @@ void PhiAttention_16f_cpu(
         std::vector<int> {0});
     printV("query_rot_buff_dims", query_rot_buff_dims);
     printV("query_pass_buff_dims", query_pass_buff_dims);
+    printT_Alt("query_rot after truncation", query_rot_buff_dims, query_rot_buff,
+    false, 5);
+    printT_Alt("key_pass after truncation", key_pass_buff_dims, key_pass_buff,
+    false, 5);
     // applying rot_pos-emb
     // [batch_size, seq_length, num_heads, head_dim // partial_rotary_factor]
     std::cout << "Calling apply_rotary_pos_emb()\n";
@@ -1385,6 +1532,8 @@ void PhiAttention_16f_cpu(
         position_ids, 1,
         query_rot_buff, query_rot_buff_dims, key_rot_buff, key_rot_buff_dims);
     printV("key_rot_buff_dims", key_rot_buff_dims);
+    printT_Alt("key_rot_buff after apply_rot_pos_emb", key_rot_buff_dims, key_rot_buff,
+    false, 5);
     // concatting rot and pass
     std::cout << "Concatenating rot and pass\n";
     concat_16f(
@@ -1397,6 +1546,9 @@ void PhiAttention_16f_cpu(
     key_pass_buff, key_pass_buff_dims, 
     key_rot_buff_dims.size()-1, 
     key_states_buff, key_states_dims);
+
+    printT_Alt("key-states after concatenation", key_states_dims, key_states_buff,
+    false, 5);
 
     // updating cache
     // past_key_value_old: (seq_len, something), (seq_len, something)
@@ -1428,8 +1580,12 @@ void PhiAttention_16f_cpu(
             past_values, past_values_dims);
         std::cout << "calling first copyTensor()\n";
         copyTensor_16f(past_keys, key_states_buff, past_keys_dims);
-        copyTensor_16f(past_values, value_states_buff, past_values_dims);
+        key_states_dims = past_keys_dims;
+        copyTensor_16f(past_values, value_states_buff_2, past_values_dims);
+        value_states_dims = past_values_dims;
     }
+
+    printV("key_states_dims after grabbing from cache", key_states_dims);
 
     // dont have to implement repeat_kv b/c num_atten_heads / num_kv_heads = 32/32 = 1
 
@@ -1467,6 +1623,9 @@ void PhiAttention_16f_cpu(
         query_states_dims, key_states_dims, attn_weights_dims);
     printV("attn_weights", attn_weights_dims);
 
+    printT_32f_Alt("attn_weights after matmul but before sqrt", attn_weights_dims, buff_3,
+    false, 5);
+
     // WHAT ABOUT THE DIVIDING BY SQRT
     const float sqrt_head_dim = 1 / sqrt(80.0);
     size_t attn_weight_elements = 1;
@@ -1475,6 +1634,8 @@ void PhiAttention_16f_cpu(
         buff_3[i] *= sqrt_head_dim;
     }
 
+    printT_32f_Alt("attn_weights after first matmul and sqrt", attn_weights_dims, buff_3,
+    false, 5);
 
     // masking
     std::cout << "Calling Masking\n";
@@ -1483,6 +1644,8 @@ void PhiAttention_16f_cpu(
         buff_3, attention_mask, buff_1,
         attn_weights_dims, attention_mask_dims, attn_output_dims);
     printV("post masking attn_weights(attn_output)", attn_output_dims);
+    printT_32f("attn_weights after masking", attn_output_dims, buff_1,
+    false, 5);
 
     
     // softmax
@@ -1490,20 +1653,32 @@ void PhiAttention_16f_cpu(
     mySoftmax(buff_1, buff_2, attn_output_dims);
     attn_weights_dims = attn_output_dims;
     printV("post softmaxing attn_weights", attn_weights_dims);
+    printT_32f_Alt("attn_weights after softmaxing", attn_weights_dims, buff_2,
+    false, 5);
 
     // downcast to fp16 (not doing for this for this code b/c cpu must upcast anyway)
     // fp32_to_fp16(buff_2, attn_output, attn_output_dims); // dont use for cpu-only implementation
 
+    //temp solution to be closer to TF-fp16 computation
+    // downcast, then upcast to 
+    DownUpCast(buff_2, attn_weights_dims);
+
+
+
     // matmul (to attn_output) (supposed to be 16 bit)
-    fp16_to_fp32(value_states_buff, buff_1, value_states_dims);
+    fp16_to_fp32(value_states_buff_2, buff_1, value_states_dims);
     std::cout << "Calling 2nd matmul\n";
     matmul_Nd_32f_constrained(
         buff_2, buff_1, buff_3,
         attn_weights_dims, value_states_dims, attn_output_dims
     );
 
+
     // now downcast attn_output back to fp16
     fp32_to_fp16(buff_3, attn_output, attn_output_dims);
+
+    printT_Alt("attn_output after matmul", attn_output_dims, attn_output,
+    false, 5);
 
     // bad solution:
     datatype* attn_weights = (datatype*)malloc(ATTN_WEIGHTS_SIZE * sizeof(datatype));
@@ -1511,7 +1686,7 @@ void PhiAttention_16f_cpu(
     // tranpose (to attn_output)
     std::cout << "Calling transpose\n";
     transpose_16f(
-        attn_output, (datatype*)attn_weights, 
+        attn_output, attn_weights, 
         std::vector<uint32_t> {0, 2, 1, 3},
         attn_output_dims, attn_weights_dims);
 
@@ -1522,10 +1697,13 @@ void PhiAttention_16f_cpu(
         (uint32_t)q_len, 
         HIDDEN_SIZE};
     
-    std::cout << "Calling Final Dense Layer\n";
     printV("attn_weights_dims", attn_weights_dims);
     printV("dense_weights_dims", dense_weights_dims);
     printV("attn_output_dims", attn_output_dims);
+    printT_Alt("attn_output after transposing and reshaping", attn_weights_dims, attn_weights,
+    false, 5);
+
+    std::cout << "Calling Final Dense Layer\n";
 
     // dense layer
     linear_Nd_16f_cpu(
@@ -1533,7 +1711,8 @@ void PhiAttention_16f_cpu(
         buff_1, buff_2, buff_3,
         attn_weights_dims, dense_weights_dims, attn_output_dims);
     
-
+    printT_Alt("attn_output after dense layer", attn_output_dims, attn_output,
+    false, 5);
 
 
     std::cout << "Freeing PhiAttentionBuffers\n";
@@ -1647,6 +1826,9 @@ void PhiDecoderLayer_16f_cpu(
     datatype* past_keys, std::vector<uint32_t>& past_keys_dims,
     datatype* past_values, std::vector<uint32_t>& past_values_dims
 ) {
+    printT("residual", hidden_states_dims, hidden_states, 
+    false, 5);
+
     // layernorm
     layernorm_Nd_16f_cpu(
         hidden_states, input_layernorm_weights, input_layernorm_bias, buff_4,
@@ -1769,6 +1951,7 @@ void init_dims_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr, int num) {
     }
     std::cout << "\n";
 }
+
 
 
 Qnn_ErrorHandle_t execute(CustomOp* operation) {
@@ -1914,15 +2097,24 @@ Qnn_ErrorHandle_t execute(CustomOp* operation) {
   // set outputs
   attn_output = (datatype*)UdoOutput;
 
+  // remove later
+  std::cout << "first elements of embedding: " <<
+    half_to_float((ushort)hidden_states[0]) << "\n";
+  printV("hidden_states_dims", hidden_states_dims);
+
   // CAREFUL FOR MEM-LEAK
   // b/c we don't wanna write to the input buffer
   datatype* const io_buff = (datatype*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(datatype));
   copyTensor_16f(hidden_states, io_buff, hidden_states_dims); // copy input into buffer
   hidden_states = io_buff;
 
+   // remove later
+  std::cout << "first elements of embedding: " <<
+    half_to_float((ushort)hidden_states[0]) << "\n";
+
     std::cout << "-----LIST OF INITIAL DIMS------\n";
     printV("attention_mask", attention_mask_dims);
-    // printV("position_ids", position_ids);
+    printV("position_ids", position_ids);
     // printV("input_layernorm_weights_len", input_layernorm_weights_len);
     printV("fc1_weights", fc1_weights_dims);
     printV("fc2_weights", fc2_weights_dims);
