@@ -28,7 +28,7 @@
 
 #include "SNPE/SNPEBuilder.hpp"
 
-#include "snpe_exec_utils.h"
+// #include "snpe_exec_utils.h"
 #include "main_macros.h"
 
 
@@ -165,6 +165,14 @@ void allocate_model_output_buffers(
             if (debug) {std::cout << "finished\n";}
         }
     }
+}
+
+void freeModels(std::vector<ModelRunetime>* models) {
+    for (int i = 0; i < (*models).size(); i++) {
+        zdl::SNPE::SNPEFactory::terminateLogging();
+        (*models)[i].snpe.reset();
+    }
+    delete models;
 }
 
 template <typename T>

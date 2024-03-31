@@ -8,6 +8,8 @@
 #include <cassert>
 
 #include "main_macros.h"
+#include "snpe_exec_utils.h"
+
 
 template <typename T>
 void read_embedding(
@@ -21,16 +23,19 @@ void read_embedding(
     std::vector<T> temp_arry(rowSize);
 
     for (int i = 0; i < input_ids.size(); i++) {
-    if (input_ids[i] >= VOCAB_SIZE) {
-        std::cerr << "Error: attempting to read from column " << input_ids[i] << 
-                    " when the max size is " << VOCAB_SIZE << "\n";
-    }
-    const size_t ret_code = fread(temp_arry.data(), sizeof(T), rowSize, fp); // read a row
-    if (ret_code != rowSize) {
-        std::cerr << "Error: number of elements read " << ret_code << " instead of " << rowSize <<
-                    " for column "  << input_ids[i] << "\n";
-    }
-    output[i] = temp_arry; // probably not the most efficient
+        if (input_ids[i] >= VOCAB_SIZE) {
+            std::cerr << "Error: attempting to read from column " << input_ids[i] << 
+                        " when the max size is " << VOCAB_SIZE << "\n";
+        }
+        fseek(fp, sizeof(T)*rowSize*input_ids[i], SEEK_SET);
+        const size_t ret_code = fread(temp_arry.data(), sizeof(T), rowSize, fp); // read a row
+        std::cout << "first element of row in fp32:" <<  half_to_float(((ushort*)temp_arry.data())[0]) << "\n";
+        std::cout << "first element of row in fp32:" <<  ((float*)temp_arry.data())[0] << "\n";
+        if (ret_code != rowSize) {
+            std::cerr << "Error: number of elements read " << ret_code << " instead of " << rowSize <<
+                        " for column "  << input_ids[i] << "\n";
+        }
+        output[i] = temp_arry; // probably not the most efficient
     }
     fclose(fp);
 }

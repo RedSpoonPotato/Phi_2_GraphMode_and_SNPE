@@ -3,7 +3,6 @@
     - Currently built for a single model, see test.cpp for an example of how to use multiple dlcs
 */
 
-
 #include "snpe_tutorial_utils.h"
 #include "snpe_exec_utils.h"
 #include "embedding.h"
@@ -49,11 +48,11 @@ int main(int argc, char* argv[]) {
     intialize_model_runtime(models);
 
     /* allocate input buffer */
-    std::vector<int> first_model_input_sizes = {
+    std::vector<size_t> first_model_input_sizes = {
         (1 + 2 * DECODERS) * (4*4 + (MAX_SEQ_LEN * HIDDEN_SIZE) * DATASIZE), 
         MASK_SIZE, 
         POS_IDS_SIZE, 
-        TOTAL_DECODER_WEIGHT_SIZE, 
+        TOTAL_DECODER_WEIGHT_SIZE, // this will overflow if using 32 decoders
         TOTAL_LM_WEIGHT_SIZE, 
         SIN_COS_TOTAL_SIZE, 
         SIN_COS_TOTAL_SIZE
@@ -64,10 +63,10 @@ int main(int argc, char* argv[]) {
     intialize_input_buffers(models, debug);
 
     /* allocate output buffer */
-    std::vector<int> first_model_output_sizes = {
+    std::vector<size_t> first_model_output_sizes = {
         (1 + 2 * DECODERS) * (4*4 + (MAX_SEQ_LEN * HIDDEN_SIZE) * DATASIZE)
     };
-    allocate_model_output_buffers(models, first_model_output_sizes, debug);
+    allocate_model_output_buffers(models, first_model_output_sizes[0], debug);
 
     /* execution stage */
     #ifdef DEBUG
@@ -103,9 +102,10 @@ int main(int argc, char* argv[]) {
             HIDDEN_SIZE, 
             (datatype*)models[0].applicationInputBuffers["hidden_states_and_kv:0"].data());
         #ifdef DEBUG
+            std::cout << "first elements of embedding: " <<
+                half_to_float(((ushort*)models[0].applicationInputBuffers["hidden_states_and_kv:0"].data())[0]) << "\n";
             std::cout << "preparing inputs\n";
         #endif
-
 
         /* generate proper mask and position_ids */
         prepareInputs(
