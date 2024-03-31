@@ -2,17 +2,20 @@
     - Currently built for a single model, see test.cpp for an example of how to use multiple dlcs
     - this file will serve as the base for creating the .so for android
 */
-#include "snpe_tutorial_utils.h"
-#include "snpe_exec_utils.h"
-#include "embedding.h"
-#include "main_macros.h"
-#include "tokenizer.h"
+// #include "snpe_tutorial_utils.h"
+// #include "snpe_exec_utils.h"
+// #include "embedding.h"
+// #include "main_macros.h"
+// #include "tokenizer.h"
+
+#include "android_main.h"
 
 #include <cassert>
 #include <iostream>
 #include <vector>
 
 #define DEBUG
+
 
 std::string modelLaunch(
     const std::string& input_txt,
@@ -23,7 +26,8 @@ std::string modelLaunch(
     const std::vector<std::string>& outputNames,
     const uint32_t& NUM_ITERS,
     const std::string& udo_path,
-    bool exitAndFree) {
+    bool firstRun,
+    Free_Status exitAndFree) {
 
     // change this later when you make multiple calls
     bool kv_empty = true;
@@ -36,42 +40,41 @@ std::string modelLaunch(
 
     /* grab cmd-line model information */
     static std::vector<ModelRunetime>* models = new std::vector<ModelRunetime>(1);
+
     (*models)[0].model = srcDIR  + "/" + dlcName;
     (*models)[0].inputs = inputList;
     (*models)[0].outputs = outputNames;
-
-    if (exitAndFree) {
-        for (int i = 0; i < (*models).size(); i++) {
-            zdl::SNPE::SNPEFactory::terminateLogging();
-            (*models)[i].snpe.reset();
-        }
-        delete models;
-        return "";
-    }
 
     #ifdef DEBUG
         print_model_runtimes(*models);
     #endif
 
-    /* load udo */
-    int udo_load = Snpe_Util_AddOpPackage(udo_path.c_str());
-    assert(udo_load == 1);
+    if (exitAndFree == Free_Status::free) {
+        freeModels(models);
+        return "";
+    }
 
-    /* intialize runtimes */
-    intialize_model_runtime(*models);
+    if (firstRun) {
+        /* load udo */
+        int udo_load = Snpe_Util_AddOpPackage(udo_path.c_str());
+        assert(udo_load == 1);
 
-    /* allocate input buffer */
-    allocate_model_input_buffers(*models, first_model_input_sizes, debug);
+        /* intialize runtimes */
+        intialize_model_runtime(*models);
 
-    /* intialize input buffer */
-    intialize_input_buffers_custom(
-        *models,
-        srcDIR,
-        first_model_input_sizes,
-        debug);
+        /* allocate input buffer */
+        allocate_model_input_buffers(*models, first_model_input_sizes, debug);
 
-    /* allocate output buffer */
-    allocate_model_output_buffers(*models, first_model_input_sizes[0], debug);
+        /* intialize input buffer */
+        intialize_input_buffers_custom(
+            *models,
+            srcDIR,
+            first_model_input_sizes,
+            debug);
+
+        /* allocate output buffer */
+        allocate_model_output_buffers(*models, first_model_input_sizes[0], debug);
+    }
 
     /* execution stage */
     #ifdef DEBUG
@@ -142,54 +145,82 @@ std::string modelLaunch(
         tokens = std::vector<uint32_t> {next_token};
 
         tot_seq_len++;
+        #ifdef DEBUG
+            std::cout << "checkpoint 1\n";
+        #endif
     }
 
     /* tokenizer decode */
     std::string output_txt;
-    tokenzie_decode(token_collection, output_txt);
+    tokenize_decode(token_collection, output_txt);
+
+    if (exitAndFree == Free_Status::run_and_free) {
+        freeModels(models);
+    }
+
+    #ifdef DEBUG
+        std::cout << "checkpoint 2\n";
+    #endif
+
     return output_txt;
 }
 
-int main() {
+// int main() {
 
-    std::string input_txt = "this test does not matter";
-    std::string output_str;
+//     std::string input_txt = "this test does not matter";
+//     std::string output_str;
 
-    std::string srcDIR = ".";
-    std::vector<std::string> inputList = {
-        "hidden_states_and_kv",
-        "attention_mask",
-        "position_ids_1",
-        "decoder_weights_1",
-        "lm_head_weights_1",
-        "sin",
-        "cos",
-    };
-    std::vector<size_t> first_model_input_sizes = {
-        (1 + 2 * DECODERS) * (4*4 + (MAX_SEQ_LEN * HIDDEN_SIZE) * DATASIZE), 
-        MASK_SIZE, 
-        POS_IDS_SIZE, 
-        TOTAL_DECODER_WEIGHT_SIZE,
-        TOTAL_LM_WEIGHT_SIZE, 
-        SIN_COS_TOTAL_SIZE, 
-        SIN_COS_TOTAL_SIZE
-    };
-    std::string dlcName = "UnifiedPhiDecodersAndLogits.dlc";
-    std::vector<std::string> outputNames = {"Output_1:0"};
-    uint32_t NUM_ITERS = 1;
-    std::string udo_path = "DecodePackage/libs/x86-64_linux_clang/libUdoDecodePackageReg.so";
-    bool exitAndFree = false;
+//     std::string srcDIR = ".";
+//     std::vector<std::string> inputList = {
+//         "hidden_states_and_kv",
+//         "attention_mask",
+//         "position_ids_1",
+//         "decoder_weights_1",
+//         "lm_head_weights_1",
+//         "sin",
+//         "cos",
+//     };
+//     std::vector<size_t> first_model_input_sizes = {
+//         (1 + 2 * DECODERS) * (4*4 + (MAX_SEQ_LEN * HIDDEN_SIZE) * DATASIZE), 
+//         MASK_SIZE, 
+//         POS_IDS_SIZE, 
+//         TOTAL_DECODER_WEIGHT_SIZE,
+//         TOTAL_LM_WEIGHT_SIZE, 
+//         SIN_COS_TOTAL_SIZE, 
+//         SIN_COS_TOTAL_SIZE
+//     };
+//     std::string dlcName = "UnifiedPhiDecodersAndLogits.dlc";
+//     std::vector<std::string> outputNames = {"Output_1:0"};
+//     uint32_t NUM_ITERS = 1;
+//     std::string udo_path = "DecodePackage/libs/x86-64_linux_clang/libUdoDecodePackageReg.so";
 
-    output_str = modelLaunch(
-        input_txt,
-        srcDIR, 
-        inputList, 
-        first_model_input_sizes,
-        dlcName, 
-        outputNames,
-        NUM_ITERS,
-        udo_path,
-        exitAndFree);
+//     output_str = modelLaunch(
+//         input_txt,
+//         srcDIR, 
+//         inputList, 
+//         first_model_input_sizes,
+//         dlcName, 
+//         outputNames,
+//         NUM_ITERS,
+//         udo_path,
+//         true,
+//         Free_Status::run);
 
-    return 0;
-}
+//     output_str = modelLaunch(
+//         input_txt,
+//         srcDIR, 
+//         inputList, 
+//         first_model_input_sizes,
+//         dlcName, 
+//         outputNames,
+//         NUM_ITERS,
+//         udo_path,
+//         false,
+//         Free_Status::run_and_free);
+
+//     #ifdef DEBUG
+//         std::cout << "checkpoint 3\n";
+//     #endif
+
+//     return 0;
+// }
