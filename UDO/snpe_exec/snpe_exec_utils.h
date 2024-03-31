@@ -13,6 +13,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <iostream>
+#include <iomanip>
 
 
 #include "DlSystem/DlError.hpp"
@@ -129,7 +130,7 @@ void intialize_model_runtime(std::vector<ModelRunetime>& runtimes) {
 // currently only built for a single model, see test.cpp for other code for mulitple models
 void allocate_model_input_buffers(
     std::vector<ModelRunetime>& runtimes,
-    std::vector<int> model_input_sizes,
+    std::vector<size_t> model_input_sizes,
     bool debug)
 {
     int num_models = runtimes.size();
@@ -145,10 +146,11 @@ void allocate_model_input_buffers(
     }
 }
 
+
 // currently only built for a single model, see test.cpp for other code for mulitple models
 void allocate_model_output_buffers(
     std::vector<ModelRunetime>& runtimes,
-    std::vector<int> model_output_sizes,
+    size_t model_output_size,
     bool debug)
 {
     std::cout << "runtimes[0].outputs.size():" << runtimes[0].outputs.size() << "\n";
@@ -156,7 +158,7 @@ void allocate_model_output_buffers(
     for (int i = 0; i < num_models; i++) {
         for (int j = 0; j < runtimes[i].outputs.size(); j++) {
             runtimes[i].applicationOutputBuffers[runtimes[i].outputs[j]] 
-               = std::vector<u_int8_t>(model_output_sizes[j]);
+               = std::vector<u_int8_t>(model_output_size);
             if (debug) {std::cout << "calling createUserBuffer()\n";}
             createUserBuffer(runtimes[i].outputMap, runtimes[i].applicationOutputBuffers,
                 runtimes[i].output_user_buff_vec, runtimes[i].snpe, (runtimes[i].outputs[j]).c_str());
@@ -165,6 +167,74 @@ void allocate_model_output_buffers(
     }
 }
 
+template <typename T>
+int loadFilesIntoVec(std::string filePath, size_t numBytes, std::vector<T>& dataVec) {
+    // check if buffer is large enough
+    size_t buffer_size = sizeof(T) * dataVec.size();
+    std::cout << "sizeof T: " << sizeof(T) << "\n";
+    std::cout << "dataVec.size()" << dataVec.size() << "\n";
+    if (numBytes > buffer_size) {
+        std::cerr  << "buffer_size: " << buffer_size 
+            << " while numBytes: " << numBytes << "\n";
+        return 1;
+    }
+    // open file
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Error opening file: " << filePath << std::endl;
+        return 2;
+    }
+    // Get the file size
+    file.seekg(0, std::ios::end);
+    size_t fileSize = file.tellg();
+    file.seekg(0, std::ios::beg);
+    // Check if the requested number of bytes is greater than the file size
+    if (numBytes > fileSize) {
+        std::cerr << "Requested number of bytes exceeds file size." << std::endl;
+        return 3;
+    }
+    // Read data into buffer
+    file.read((char*)dataVec.data(), numBytes);
+    // Check for errors during read
+    if (!file) {
+        std::cerr << "Error reading file: " << filePath << std::endl;
+        return 4;
+    }
+    // Close the file
+    file.close();
+    return 0;
+}
+
+// made for a single model
+void intialize_input_buffers_custom(
+    std::vector<ModelRunetime>& runtimes,
+    const std::string& srcDir,
+    const std::vector<size_t>& inputSizes,
+    bool debug) 
+{
+    int num_models = runtimes.size();
+    assert(num_models == 1);
+    std::string filePath;
+    for (int i = 0; i < num_models; i++) {
+        for (int j = 0; j < runtimes[i].inputs.size(); j++) {
+            filePath = srcDir + "/" + runtimes[i].inputs[j] + ".dat";
+            if (debug) {
+                std::cout << "filepath to read: " << filePath << "\n";
+                // std::cout << "key: " << runtimes[i].inputs[j] << "\n";
+                // std::cout << "vector_size: " 
+                //     << runtimes[i].applicationInputBuffers[runtimes[i].inputs[j]].size() << "\n";
+            }
+            int ret_code = loadFilesIntoVec(
+                filePath, 
+                inputSizes[j], 
+                runtimes[i].applicationInputBuffers[runtimes[i].inputs[j] + ":0"]);
+            if (debug) {std::cout << "loadFilesIntoVec ret_code: " << ret_code << "\n";}
+            assert(ret_code == 0);
+        }
+    }
+}
+
+// dont use this
 void intialize_input_buffers(
     std::vector<ModelRunetime>& runtimes,
     bool debug) 
@@ -186,6 +256,8 @@ void intialize_input_buffers(
         loadInputUserBuffer(runtimes[i].applicationInputBuffers, runtimes[i].snpe, fileLine);
     }
 }
+
+
 
 template <typename T>
 void resetKV(T* in) {
@@ -294,7 +366,7 @@ void prepareInputs(float* mask, int* position_ids, uint32_t seq_len, uint32_t it
         float lowest = std::numeric_limits<float>::lowest();
         for (uint32_t row = 0; row < seq_len; row++) {
             for (uint32_t col = 0; col < seq_len; col++) {
-                std::cout << "(row, col): (" << row << ", " << col << ")\n";
+                // std::cout << "(row, col): (" << row << ", " << col << ")\n";
                 if (row >= col) { mask[row*seq_len + col] = 0; }
                 else            { mask[row*seq_len + col] = lowest; } 
             }
@@ -320,6 +392,44 @@ void prepareInputs(float* mask, int* position_ids, uint32_t seq_len, uint32_t it
     }
 }
 
+typedef unsigned short ushort;
+typedef unsigned int uint;
+uint as_uint(const float x) {
+    return *(uint*)&x;
+}
+float as_float(const uint x) {
+    return *(float*)&x;
+}
+float half_to_float(const ushort x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint e = (x&0x7C00)>>10; // exponent
+    const uint m = (x&0x03FF)<<13; // mantissa
+    const uint v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
+    return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
+}
+ushort float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
+    const uint e = (b&0x7F800000)>>23; // exponent
+    const uint m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
+    return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
+}
+
+void fp16_to_fp32(ushort* in, float* out, const std::vector<uint32_t>& dims) {
+    assert((void*)in != (void*)out);
+    size_t num_elem = dims.end()[-1];
+    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
+    for (size_t i = 0; i < num_elem; i++) {
+        out[i] = half_to_float(in[i]);
+    }
+}
+void fp32_to_fp16(float* in, ushort* out, const std::vector<uint32_t>& dims) {
+    assert((void*)in != (void*)out);
+    size_t num_elem = dims.end()[-1];
+    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
+    for (size_t i = 0; i < num_elem; i++) {
+        out[i] = float_to_half(in[i]);
+    }
+}
+
 template <typename T>
 void printV(const std::string& str, const std::vector<T>& vec) {
     std::cout << str;
@@ -330,5 +440,40 @@ void printV(const std::string& str, const std::vector<T>& vec) {
     }
     std::cout << "]\n";
 }
+
+
+void printT(
+    const std::string& str, const std::vector<uint32_t>& dims, const datatype* tensor, 
+    bool precise, size_t max_elem
+    ) {
+    // print dims
+    printV(str, dims);
+    // calculate size of each dimension
+    std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
+    for (int i = dims.size()-2; i >= 0; i--) {
+        uint32_t offset = dims[i] * dim_sizes.end()[-1];
+        dim_sizes.push_back(offset);
+    }
+    // calculate total number of elements
+    size_t tot_elements = 1;
+    for (auto i : dims) { tot_elements *= i; }
+    // print everything
+    for (auto i : dims) { std::cout << "["; }
+    for (size_t i = 0; i < tot_elements; i++) {
+        if (i > max_elem) {break;}
+        for (auto j : dim_sizes) {
+            if (i % j == 0 && i != 0) {
+                std::cout << "]\n[";
+            }
+        }
+        if (precise) { std::cout << std::setprecision(30) 
+            << half_to_float((ushort)tensor[i]) << ", "; }
+        else { std::cout << half_to_float((ushort)tensor[i]) << ", "; }
+    }
+    for (auto i : dims) { std::cout << "]"; }
+    std::cout << "\n";
+}
+
+
 
 #endif
