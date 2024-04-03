@@ -8,6 +8,27 @@
 // #include "main_macros.h"
 // #include "tokenizer.h"
 
+
+#       ifdef ANDROID
+            // LOGS ANDROID
+#           include <android/log.h>
+#           define LOGV(...) __android_log_print(ANDROID_LOG_VERBOSE, LOG_TAG,__VA_ARGS__)
+#           define LOGD(...) __android_log_print(ANDROID_LOG_DEBUG  , LOG_TAG,__VA_ARGS__)
+#           define LOGI(...) __android_log_print(ANDROID_LOG_INFO   , LOG_TAG,__VA_ARGS__)
+#           define LOGW(...) __android_log_print(ANDROID_LOG_WARN   , LOG_TAG,__VA_ARGS__)
+#           define LOGE(...) __android_log_print(ANDROID_LOG_ERROR  , LOG_TAG,__VA_ARGS__)
+#           define LOGSIMPLE(...)
+#       else
+            // LOGS NO ANDROID
+#           include <stdio.h>
+#           define LOGV(...) printf("  ");printf(__VA_ARGS__); printf("\t -  <%s> \n", LOG_TAG);
+#           define LOGD(...) printf("  ");printf(__VA_ARGS__); printf("\t -  <%s> \n", LOG_TAG);
+#           define LOGI(...) printf("  ");printf(__VA_ARGS__); printf("\t -  <%s> \n", LOG_TAG);
+#           define LOGW(...) printf("  * Warning: "); printf(__VA_ARGS__); printf("\t -  <%s> \n", LOG_TAG);
+#           define LOGE(...) printf("  *** Error:  ");printf(__VA_ARGS__); printf("\t -  <%s> \n", LOG_TAG);
+#           define LOGSIMPLE(...) printf(" ");printf(__VA_ARGS__);
+#       endif // ANDROID
+
 #include "android_main.h"
 
 #include <cassert>
@@ -22,10 +43,12 @@ std::string modelLaunch(
     const std::string& srcDIR, 
     const std::vector<std::string>& inputList, 
     const std::vector<size_t>& first_model_input_sizes,
+    const std::string& embeddingFile,
     const std::string& dlcName, 
     const std::vector<std::string>& outputNames,
     const uint32_t& NUM_ITERS,
     const std::string& udo_path,
+    bool use_udo,
     bool firstRun,
     Free_Status exitAndFree) {
 
@@ -56,8 +79,10 @@ std::string modelLaunch(
 
     if (firstRun) {
         /* load udo */
-        int udo_load = Snpe_Util_AddOpPackage(udo_path.c_str());
-        assert(udo_load == 1);
+        if (use_udo) {
+            int udo_load = Snpe_Util_AddOpPackage(udo_path.c_str());
+            assert(udo_load == 1);
+        }
 
         /* intialize runtimes */
         intialize_model_runtime(*models);
@@ -104,7 +129,7 @@ std::string modelLaunch(
 
         /* embedding layer */
         writeEmbedding(
-            "embed_tokens.dat", 
+            srcDIR + "/" + embeddingFile, 
             tokens, 
             HIDDEN_SIZE, 
             (datatype*)(*models)[0].applicationInputBuffers["hidden_states_and_kv:0"].data());
