@@ -14,10 +14,12 @@ std::string modelLaunch(
     const std::string& srcDIR, 
     const std::vector<std::string>& inputList, 
     const std::vector<size_t>& first_model_input_sizes,
+    const std::string& embeddingFile,
     const std::string& dlcName, 
     const std::vector<std::string>& outputNames,
     const uint32_t& NUM_ITERS,
     const std::string& udo_path,
+    bool use_udo,
     bool firstRun,
     Free_Status exitAndFree);
 
