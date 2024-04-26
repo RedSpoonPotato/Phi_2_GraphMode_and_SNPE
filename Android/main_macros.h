@@ -3,6 +3,8 @@
 
 #include <iostream>
 
+#define DEBUG
+
 // float
 #define BATCH_SIZE 1
 #define MAX_SEQ_LEN 2048

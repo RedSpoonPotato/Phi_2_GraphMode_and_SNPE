@@ -28,25 +28,24 @@
 #include <cassert>
 #include <fstream>
 
-zdl::DlSystem::Runtime_t checkRuntime()
+zdl::DlSystem::Runtime_t checkRuntime(zdl::DlSystem::Runtime_t runtime)
 {
     static zdl::DlSystem::Version_t Version = zdl::SNPE::SNPEFactory::getLibraryVersion();
     static zdl::DlSystem::Runtime_t Runtime;
     std::cout << "Qualcomm (R) Neural Processing SDK Version: " << Version.asString().c_str() << std::endl; //Print Version number
-    if (zdl::SNPE::SNPEFactory::isRuntimeAvailable(zdl::DlSystem::Runtime_t::CPU)) {
-        Runtime = zdl::DlSystem::Runtime_t::CPU;
+    if (zdl::SNPE::SNPEFactory::isRuntimeAvailable(runtime)) {
+        Runtime = runtime;
     }
     else {
-        std::cout << "ERROR!, CPU runtime not found!";
-        Runtime = zdl::DlSystem::Runtime_t::CPU;
+        std::cerr << "Targeted runtime: " << (int)runtime << "is not available\n";
+        exit(1);
     }
     return Runtime;
 }
 
 std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(std::unique_ptr<zdl::DlContainer::IDlContainer>& container,
                                                    zdl::DlSystem::RuntimeList runtimeList,
-                                                   bool useUserSuppliedBuffers,
-                                                   const char* name)
+                                                   bool useUserSuppliedBuffers)
 {
    std::unique_ptr<zdl::SNPE::SNPE> snpe;
    zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
@@ -69,14 +68,48 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(std::unique_ptr<zdl::DlContai
    return snpe;
 }
 
+std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(
+    std::unique_ptr<zdl::DlContainer::IDlContainer>& container,
+    zdl::DlSystem::RuntimeList runtimeList,
+    bool useUserSuppliedBuffers,
+    std::unordered_map<std::string, std::vector<size_t>> dims_dict)
+{
+    std::unique_ptr<zdl::SNPE::SNPE> snpe;
+    zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+    // added to make dynamic
+    printf("snpe before: %p\n", snpe.get());
+    // std::cout << "container.get()" << container.get() << std::endl;
+    
+    for (const auto& pair : dims_dict) {
+        zdl::DlSystem::TensorShape shape(pair.second);
+        zdl::DlSystem::TensorShapeMap inputShapeMap;
+        inputShapeMap.add(pair.first.c_str(), shape);
+        snpeBuilder.setInputDimensions(inputShapeMap);
+    }
+
+    // end of add
+    std::cout << "going to build\n";
+    snpe = snpeBuilder.setOutputLayers({})
+        .setRuntimeProcessorOrder(runtimeList)
+        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
+        .build();
+    std::cout << "finished building\n";
+    printf("snpe after: %p\n", snpe.get());
+    return snpe;
+}
+
+
+
 void createUserBuffer(
     zdl::DlSystem::UserBufferMap& userBufferMap,
     std::unordered_map<std::string, std::vector<uint8_t>>& applicationBuffers,
     std::vector<std::unique_ptr<zdl::DlSystem::IUserBuffer>>& snpeUserBackedBuffers,
     std::unique_ptr<zdl::SNPE::SNPE>& snpe,
-    const char * name)
+    const char* name,
+    size_t datasize)
 {
-   std::cout << name << "\n";
+//    auto name = snpe->getInputTensorNames().at(input_num);
+   std::cout << "name from createUserBuffer: " << name << "\n";
    // std::cout << "input names:" << 
    // get attributes of buffer by name
    auto bufferAttributesOpt = snpe->getInputOutputBufferAttributes(name);
@@ -91,7 +124,7 @@ void createUserBuffer(
    // Note: Buffer stride is usually known and does not need to be calculated.
    std::vector<size_t> strides(bufferShape.rank());
    std::cout << "bufferShape.rank(): " << bufferShape.rank() << "\n";
-   strides[strides.size() - 1] = sizeof(float);
+   strides[strides.size() - 1] = datasize;
    std::cout << "got strides\n";
    size_t stride = strides[strides.size() - 1];
    for (size_t i = bufferShape.rank() - 1; i > 0; i--)
@@ -100,7 +133,8 @@ void createUserBuffer(
       strides[i-1] = stride;
    }
    const size_t bufferElementSize = (*bufferAttributesOpt)->getElementSize();
-   // size_t bufferElementSize = (*bufferAttributesOpt)->getElementSize();
+   std::cout << "bufferElementSize: " << bufferElementSize << "\n";
+   assert(bufferElementSize == datasize); // probably fial for now
    size_t bufSize = calcSizeFromDims(bufferShape.getDimensions(), bufferShape.rank(), bufferElementSize);
         // dummy code:
       //   size_t bufSize = bufferElementSize;
@@ -119,6 +153,45 @@ void createUserBuffer(
                                                               &userBufferEncodingFloat));
    // add the user-backed buffer to the inputMap, which is later on fed to the network for execution
    userBufferMap.add(name, snpeUserBackedBuffers.back().get());
+}
+
+void modifyUserBuffer(
+    zdl::DlSystem::UserBufferMap& userBufferMap,
+    std::unordered_map<std::string, std::vector<uint8_t>>& applicationBuffers,
+    std::vector<std::unique_ptr<zdl::DlSystem::IUserBuffer>>& snpeUserBackedBuffers,
+    std::unique_ptr<zdl::SNPE::SNPE>& snpe,
+    const char* name,
+    size_t datasize,
+    int ibuffer_index)
+{
+    auto bufferAttributesOpt = snpe->getInputOutputBufferAttributes(name);
+    if (!bufferAttributesOpt) throw std::runtime_error(std::string("Error obtaining attributes for input tensor ") + name);
+    const zdl::DlSystem::TensorShape& bufferShape = (*bufferAttributesOpt)->getDims();
+    std::vector<size_t> strides(bufferShape.rank());
+    std::cout << "bufferShape.rank(): " << bufferShape.rank() << "\n";
+    strides[strides.size() - 1] = datasize;
+    std::cout << "got strides\n";
+    size_t stride = strides[strides.size() - 1];
+    for (size_t i = bufferShape.rank() - 1; i > 0; i--)
+    {
+        stride *= bufferShape[i];
+        strides[i-1] = stride;
+    }
+    const size_t bufferElementSize = (*bufferAttributesOpt)->getElementSize();
+    std::cout << "bufferElementSize: " << bufferElementSize << "\n";
+    assert(bufferElementSize == datasize); // probably fial for now
+    size_t bufSize = calcSizeFromDims(bufferShape.getDimensions(), bufferShape.rank(), bufferElementSize);
+    zdl::DlSystem::UserBufferEncodingFloat userBufferEncodingFloat;
+    std::cout << applicationBuffers.at(name).size() << " >= " << bufSize << "?\n";
+    assert(applicationBuffers.at(name).size() >= bufSize);
+    zdl::DlSystem::IUserBufferFactory& ubFactory = zdl::SNPE::SNPEFactory::getUserBufferFactory();
+
+    snpeUserBackedBuffers[ibuffer_index] = ubFactory.createUserBuffer(applicationBuffers.at(name).data(),
+                                                              bufSize,
+                                                              strides,
+                                                              &userBufferEncodingFloat);
+    userBufferMap.remove(name);
+    userBufferMap.add(name, snpeUserBackedBuffers[ibuffer_index].get());
 }
 
 void loadInputUserBuffer(

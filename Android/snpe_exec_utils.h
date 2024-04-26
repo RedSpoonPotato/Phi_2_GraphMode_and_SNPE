@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
+#include <chrono>
 
 
 #include "DlSystem/DlError.hpp"
@@ -43,7 +44,7 @@ struct ModelRunetime {
     std::unordered_map<std::string, std::vector<uint8_t>> applicationOutputBuffers;
     zdl::DlSystem::UserBufferMap inputMap;
     zdl::DlSystem::UserBufferMap outputMap;
-
+        
     std::vector<std::unique_ptr<zdl::DlSystem::IUserBuffer>> input_user_buff_vec;
     std::vector<std::unique_ptr<zdl::DlSystem::IUserBuffer>> output_user_buff_vec;
 
@@ -51,6 +52,9 @@ struct ModelRunetime {
     zdl::DlSystem::Runtime_t runtime;
     std::unique_ptr<zdl::DlContainer::IDlContainer> container;
     std::unique_ptr<zdl::SNPE::SNPE> snpe;
+
+    // new thing
+    std::vector<uint8_t> dlc_buff;
 };
 
 void parse_argv_models(std::vector<ModelRunetime>& models, int argc, char* argv[]) {
@@ -77,15 +81,15 @@ void parse_argv_models(std::vector<ModelRunetime>& models, int argc, char* argv[
                     models.back().inputs.push_back(temp_str); // ex: "input1.dat" --> "input1"
                     continue;
                 default:
-                    continue;
+                continue;
             }
         }
     }
 }
 
 void parse_argv_other(
-        int argc, char* argv[],
-        uint32_t& num_iterations)
+    int argc, char* argv[],
+    uint32_t& num_iterations) 
 {
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '-') {
@@ -108,50 +112,97 @@ void print_model_runtimes(const std::vector<ModelRunetime>& models) {
         std::cout << ",";
         for (const auto& output : model.outputs)  {std::cout << " " << output;}
         std::cout << "\n";
-    }
-    std::cout << "---------------------------\n";
+   }
+   std::cout << "---------------------------\n";
 }
 
-std::string intialize_model_runtime(std::vector<ModelRunetime>& runtimes) {
+void loadFile(std::vector<uint8_t>& vec, const std::string& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Unable to open file: " + filePath);
+    }
+    // Determine the file size
+    file.seekg(0, std::ios::end);
+    size_t fileSize = file.tellg();
+    file.seekg(0, std::ios::beg);
+    // Resize the vector to fit the file content
+    vec.resize(fileSize);
+    // Load the file content into the vector
+    if (!file.read(reinterpret_cast<char*>(vec.data()), fileSize)) {
+        throw std::runtime_error("Error reading file: " + filePath);
+    }
+    file.close();
+}
+
+std::string intialize_model_runtime(
+    std::vector<ModelRunetime>& runtimes, 
+    const std::vector<DlSystem::Runtime_t>& runtime_modes) 
+{
+    std::cout << "runtimes.size(): " << runtimes.size() << "\n"; // remove later
     int num_models = runtimes.size();
+    assert(runtime_modes.size() == num_models);
     for (int i = 0; i < num_models; i++) {
         runtimes[i].applicationInputBuffers = std::unordered_map<std::string, std::vector<uint8_t>>();
         runtimes[i].applicationOutputBuffers = std::unordered_map<std::string, std::vector<uint8_t>>();
         runtimes[i].inputMap = zdl::DlSystem::UserBufferMap();
         runtimes[i].outputMap = zdl::DlSystem::UserBufferMap();
-        runtimes[i].runtime = checkRuntime();
-        // return runtimes[i].model;
-        // if (runtimes[i].container.get() != NULL) {
-        //     return "before: " + std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[i].container.get()));
-        // }
-        runtimes[i].container = loadContainerFromFile(runtimes[i].model);
-        // return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[i].container.get()));
-        // return "1";
-        runtimes[i].snpe = setBuilderOptions(
-                runtimes[i].container, runtimes[i].runtime,
-                true, (runtimes[i].inputs[0]+":0").c_str());
+        runtimes[i].runtime = checkRuntime(runtime_modes[i]);
+
+        /* old way */
+        // runtimes[i].container = loadContainerFromFile(runtimes[i].model);
+
+        std::cout << "loading file: " << runtimes[i].model << "\n";
+        #ifdef DEBUG
+            auto start = std::chrono::high_resolution_clock::now();
+        #endif
+
+        loadFile(runtimes[i].dlc_buff, runtimes[i].model);
+        runtimes[i].container = loadContainerFromFile_v2(runtimes[i].dlc_buff);
+
+        #ifdef DEBUG
+            auto end = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            std::cout << "time to load model " << runtimes[i].model << ": " << duration << "ms\n";
+        #endif
+
+        #ifdef DEBUG
+            auto start_2 = std::chrono::high_resolution_clock::now();
+        #endif
+
+        runtimes[i].snpe = setBuilderOptions(runtimes[i].container, runtimes[i].runtime, true);
+        
+        std::unordered_map<std::string, std::vector<size_t>> new_map;
+        new_map["vector:0"] = {2, 1, 1, int(1e3)};
+        runtimes[i].snpe = setBuilderOptions(runtimes[i].container, runtimes[i].runtime, true, new_map);
+
+        #ifdef DEBUG
+            auto end_2 = std::chrono::high_resolution_clock::now();
+            auto duration_2 = std::chrono::duration_cast<std::chrono::milliseconds>(end_2 - start_2).count();
+            std::cout << "time to build model " << runtimes[i].model << ": " << duration_2 << "ms\n";
+        #endif
     }
-    return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].container.get())) + "\n" +
-           (runtimes[0].inputs[0]+":0") + "\n" +
-           std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].snpe.get()));
+    return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].container.get())) + "\n" + 
+            std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].snpe.get()));
 }
 
 // currently only built for a single model, see test.cpp for other code for mulitple models
 void allocate_model_input_buffers(
-        std::vector<ModelRunetime>& runtimes,
-        std::vector<size_t> model_input_sizes,
-        bool debug)
+    std::vector<ModelRunetime>& runtimes,
+    std::vector<size_t> model_buffer_sizes,
+    bool debug,
+    size_t datasize)
 {
+    std::cout << "runtimes.size(): " << runtimes.size() << "\n"; // remove later
     int num_models = runtimes.size();
     for (int i = 0; i < num_models; i++) {
         for (int j = 0; j < runtimes[i].inputs.size(); j++) {
-            runtimes[i].applicationInputBuffers[runtimes[i].inputs[j] + ":0"]
-                    = std::vector<u_int8_t>(model_input_sizes[j]);
-            // return "Created vector";
+            std::string name = (*(runtimes[i].snpe->getInputTensorNames())).at(j);
+            runtimes[i].applicationInputBuffers[name] = std::vector<u_int8_t>(model_buffer_sizes[j], 1);
+            // return "Created vector"; 
             // return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].snpe.get()));
-            if (debug) {std::cout << "calling createUserBuffer()\n";}
+            if (debug) {std::cout << "calling createUserBuffer()\n";} 
             createUserBuffer(runtimes[i].inputMap, runtimes[i].applicationInputBuffers,
-                             runtimes[i].input_user_buff_vec, runtimes[i].snpe, (runtimes[i].inputs[j] + ":0").c_str());
+                runtimes[i].input_user_buff_vec, runtimes[i].snpe, name.c_str(), datasize);
             // return "Called createUserBuffer";
             if (debug) {std::cout << "finished\n";}
         }
@@ -161,19 +212,23 @@ void allocate_model_input_buffers(
 
 // currently only built for a single model, see test.cpp for other code for mulitple models
 void allocate_model_output_buffers(
-        std::vector<ModelRunetime>& runtimes,
-        size_t model_output_size,
-        bool debug)
+    std::vector<ModelRunetime>& runtimes,
+    std::vector<size_t> model_output_sizes,
+    bool debug,
+    size_t datasize)
 {
-    std::cout << "runtimes[0].outputs.size():" << runtimes[0].outputs.size() << "\n";
+    std::cout << "runtimes.size(): " << runtimes.size() << "\n"; // remove later
+    // these assertions will be wrong later
     int num_models = runtimes.size();
+    assert(num_models != 0);
+    assert(runtimes[0].outputs.size() == 1);
     for (int i = 0; i < num_models; i++) {
         for (int j = 0; j < runtimes[i].outputs.size(); j++) {
-            runtimes[i].applicationOutputBuffers[runtimes[i].outputs[j]]
-                    = std::vector<u_int8_t>(model_output_size);
+            std::string name = (*(runtimes[i].snpe->getOutputTensorNames())).at(j);
+            runtimes[i].applicationOutputBuffers[name] = std::vector<u_int8_t>(model_output_sizes[j], 1);
             if (debug) {std::cout << "calling createUserBuffer()\n";}
             createUserBuffer(runtimes[i].outputMap, runtimes[i].applicationOutputBuffers,
-                             runtimes[i].output_user_buff_vec, runtimes[i].snpe, (runtimes[i].outputs[j]).c_str());
+                runtimes[i].output_user_buff_vec, runtimes[i].snpe, name.c_str(), datasize);
             if (debug) {std::cout << "finished\n";}
         }
     }
@@ -194,8 +249,8 @@ int loadFilesIntoVec(std::string filePath, size_t numBytes, std::vector<T>& data
     std::cout << "sizeof T: " << sizeof(T) << "\n";
     std::cout << "dataVec.size()" << dataVec.size() << "\n";
     if (numBytes > buffer_size) {
-        std::cerr  << "buffer_size: " << buffer_size
-                   << " while numBytes: " << numBytes << "\n";
+        std::cerr  << "buffer_size: " << buffer_size 
+            << " while numBytes: " << numBytes << "\n";
         return 1;
     }
     // open file
@@ -227,55 +282,60 @@ int loadFilesIntoVec(std::string filePath, size_t numBytes, std::vector<T>& data
 
 // made for a single model
 void intialize_input_buffers_custom(
-        std::vector<ModelRunetime>& runtimes,
-        const std::string& srcDir,
-        const std::vector<size_t>& inputSizes,
-        bool debug)
+    std::vector<ModelRunetime>& runtimes,
+    const std::string& srcDir,
+    const std::vector<size_t>& inputFileSizes,
+    bool debug) 
 {
     int num_models = runtimes.size();
     assert(num_models == 1);
     std::string filePath;
     for (int i = 0; i < num_models; i++) {
         for (int j = 0; j < runtimes[i].inputs.size(); j++) {
-            filePath = srcDir + "/" + runtimes[i].inputs[j] + ".dat";
+            filePath = srcDir + "/" + runtimes[i].inputs[j];
             if (debug) {
                 std::cout << "filepath to read: " << filePath << "\n";
                 // std::cout << "key: " << runtimes[i].inputs[j] << "\n";
-                // std::cout << "vector_size: "
+                // std::cout << "vector_size: " 
                 //     << runtimes[i].applicationInputBuffers[runtimes[i].inputs[j]].size() << "\n";
             }
             int ret_code = loadFilesIntoVec(
-                    filePath,
-                    inputSizes[j],
-                    runtimes[i].applicationInputBuffers[runtimes[i].inputs[j] + ":0"]);
+                filePath, 
+                inputFileSizes[j], 
+                runtimes[i].applicationInputBuffers[(*(runtimes[i].snpe->getInputTensorNames())).at(j)]);
+                // runtimes[i].applicationInputBuffers[runtimes[i].inputs[j] + ":0"]);
             if (debug) {std::cout << "loadFilesIntoVec ret_code: " << ret_code << "\n";}
             assert(ret_code == 0);
         }
     }
 }
 
-// dont use this
-void intialize_input_buffers(
-        std::vector<ModelRunetime>& runtimes,
-        bool debug)
-{
-    int num_models = runtimes.size();
-    assert(num_models == 1);
-    std::string fileLine;
-    for (int i = 0; i < num_models; i++) {
-        fileLine = std::string();
-        if (debug) {
-            std::cout << "reading files for 1st model input\n";
-        }
-        for (int j = 0; j < runtimes[i].inputs.size(); j++) {fileLine += runtimes[i].inputs[j] + ".dat ";}
-        fileLine.pop_back(); // remove last space
-        if (debug) {
-            std::cout << "fileLine: " << fileLine << "\n";
-            std::cout << "calling loadInputUserBuffer()\n";
-        }
-        loadInputUserBuffer(runtimes[i].applicationInputBuffers, runtimes[i].snpe, fileLine);
-    }
+void saveBuffer(const ModelRunetime& model_runtime, const std::string& OutputDir) {
+    #ifdef DEBUG
+        std::cout << "calling outputMap.getusreBufferNames\n";
+    #endif
+    const zdl::DlSystem::StringList& outputBufferNames = model_runtime.outputMap.getUserBufferNames();
+    #ifdef DEBUG
+        std::cout << "finished\n";
+    #endif
+    // Iterate through output buffers and print each output to a raw file
+    int i = 0;
+    std::for_each(outputBufferNames.begin(), outputBufferNames.end(), [&](const char* name)
+    {
+        #ifdef DEBUG
+            std::cout << "saveBuffer start iteration:" << i << "\n";
+        #endif
+        std::ostringstream path;
+        path << OutputDir << "/" << model_runtime.outputs[i] << ".raw";
+        SaveUserBuffer(path.str(), model_runtime.applicationOutputBuffers.at(name));
+        #ifdef DEBUG
+            std::cout << "saveBuffer end iteration:" << i << "\n";
+        #endif
+        i++;
+    });
 }
+
+
 
 
 
@@ -306,13 +366,13 @@ size_t multiReduce(const std::vector<T>& dims) {
 }
 
 void init_dims_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr, int num) {
-    vec = std::vector<uint32_t>();
-    uint32_t* ptr_32 = (uint32_t*)ptr;
-    std::cout << "grabbing dimensions: ";
-    assert(num <= 4);
-    for (int i = 4 - num; i < 4; i++) {
-        std::cout << ptr_32[i] << " ";
-        vec.push_back(ptr_32[i]);
+  vec = std::vector<uint32_t>();
+  uint32_t* ptr_32 = (uint32_t*)ptr;
+  std::cout << "grabbing dimensions: ";
+  assert(num <= 4);
+  for (int i = 4 - num; i < 4; i++) { 
+    std::cout << ptr_32[i] << " ";
+    vec.push_back(ptr_32[i]); 
     }
     std::cout << "\n";
 }
@@ -388,7 +448,7 @@ void prepareInputs(float* mask, int* position_ids, uint32_t seq_len, uint32_t it
             for (uint32_t col = 0; col < seq_len; col++) {
                 // std::cout << "(row, col): (" << row << ", " << col << ")\n";
                 if (row >= col) { mask[row*seq_len + col] = 0; }
-                else            { mask[row*seq_len + col] = lowest; }
+                else            { mask[row*seq_len + col] = lowest; } 
             }
         }
     }
@@ -463,9 +523,9 @@ void printV(const std::string& str, const std::vector<T>& vec) {
 
 
 void printT(
-        const std::string& str, const std::vector<uint32_t>& dims, const datatype* tensor,
-        bool precise, size_t max_elem
-) {
+    const std::string& str, const std::vector<uint32_t>& dims, const datatype* tensor, 
+    bool precise, size_t max_elem
+    ) {
     // print dims
     printV(str, dims);
     // calculate size of each dimension
@@ -486,8 +546,8 @@ void printT(
                 std::cout << "]\n[";
             }
         }
-        if (precise) { std::cout << std::setprecision(30)
-                                 << half_to_float((ushort)tensor[i]) << ", "; }
+        if (precise) { std::cout << std::setprecision(30) 
+            << half_to_float((ushort)tensor[i]) << ", "; }
         else { std::cout << half_to_float((ushort)tensor[i]) << ", "; }
     }
     for (auto i : dims) { std::cout << "]"; }
