@@ -18,10 +18,9 @@ SO_FILE := libmain.so
 SRC_DIR  := ./
 OBJ_DIR  := obj/local/x86_64-linux-clang
 
-EXCLUDE_FILES := test.cpp main.cpp main_alt.cpp htp_main_no_udo.cpp load_test.cpp
+EXCLUDE_FILES := test.cpp main.cpp main_alt.cpp htp_main_no_udo.cpp load_test.cpp android_main_htp_non_udo.cpp
 
-
-# goal is to compile: android_main_htp_non_udo.cpp
+# goal is to compile: android_main.cpp
 
 SRC := $(filter-out $(addprefix $(SRC_DIR)/,$(EXCLUDE_FILES)), $(wildcard $(SRC_DIR)/*.cpp))
 # Generate the output names by substituting the object dir for the source dir

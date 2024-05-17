@@ -23,7 +23,7 @@ LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
 include $(CLEAR_VARS)
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/include
 LOCAL_MODULE := libmain
-LOCAL_SRC_FILES := android_main_htp_non_udo.cpp CheckRuntime.cpp LoadContainer.cpp LoadUDOPackage.cpp LoadInputTensor.cpp SetBuilderOptions.cpp Util.cpp NV21Load.cpp CreateUserBuffer.cpp PreprocessInput.cpp SaveOutputTensor.cpp CreateGLBuffer.cpp CreateGLContext.cpp
+LOCAL_SRC_FILES := android_main.cpp CheckRuntime.cpp LoadContainer.cpp LoadUDOPackage.cpp LoadInputTensor.cpp SetBuilderOptions.cpp Util.cpp NV21Load.cpp CreateUserBuffer.cpp PreprocessInput.cpp SaveOutputTensor.cpp CreateGLBuffer.cpp CreateGLContext.cpp
 LOCAL_EXPORT_C_INCLUDES += $(LOCAL_PATH)/include
 LOCAL_CFLAGS := -DENABLE_GL_BUFFER
 LOCAL_SHARED_LIBRARIES := libSNPE

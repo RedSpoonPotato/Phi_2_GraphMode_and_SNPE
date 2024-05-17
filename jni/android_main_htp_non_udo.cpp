@@ -1,3 +1,7 @@
+/*
+This is an old copy of android main where we did not fully implement model_dict
+*/
+
 #include "android_main.h"
 // #include "include/android_main.h"
 #include "tokenizer.hpp"
@@ -31,6 +35,8 @@ std::string modelLaunch(
     const Free_Status exitAndFree,
     const int debugReturnCode) {
 
+    bool simple_exec = true;
+
     // change this later when you make multiple calls
     bool kv_empty = true;
 
@@ -42,6 +48,7 @@ std::string modelLaunch(
 
     /* grab cmd-line model information */
     static std::vector<ModelRunetime>* models = new std::vector<ModelRunetime>(1);
+
 
     (*models)[0].model = dlcPath;
     (*models)[0].inputs = inputList;
@@ -163,17 +170,35 @@ std::string modelLaunch(
 
             if (debugReturnCode == 10) { return "10"; }
 
-        #endif
+            /* call model */
+            if (simple_exec) {
+                (*models)[0].snpe->execute((*models)[0].inputMap, (*models)[0].outputMap);
+            }
+            else {
+                // PhiDecodeP1_reshaped
+                
 
+                //PhiDecodeP2_1_first_buffered
 
-        #ifdef DEBUG
+                //PhiDecodeP2_2_first_buffered
+                    // need to manually add softmax to it
+
+                //PhiDecodeP2_not_first_reshaped
+
+                //PhiDecodeP3_first_buffered
+
+                //PhiDecodeP3_not_first_reshaped
+
+                //PhiDecodeP3_not_first_buffered
+
+                //PhiDecodeP4_reshaped
+
+            }
+
+        #else
             auto start = std::chrono::high_resolution_clock::now();
-        #endif 
-
-        /* call model */
-        (*models)[0].snpe->execute((*models)[0].inputMap, (*models)[0].outputMap);
-
-        #ifdef DEBUG
+            /* call model */
+            (*models)[0].snpe->execute((*models)[0].inputMap, (*models)[0].outputMap);
             auto end = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
             std::cout << "time to execute model " << (*models)[0].model << ": " << duration << "ms\n";
