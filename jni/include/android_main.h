@@ -25,21 +25,20 @@ runtime_modes: {
 
 std::string modelLaunch(
     const std::string& input_txt,
-    const std::vector<zdl::DlSystem::Runtime_t>& runtime_modes,
+    const std::map<std::string, zdl::DlSystem::Runtime_t>& runtime_modes,
     const std::string& srcDIR, 
-    const std::vector<std::string>& inputList, 
-    const std::vector<size_t>& first_model_input_sizes,
-    const std::vector<size_t>& first_model_buffer_sizes,
-    const std::vector<size_t>& first_model_output_buffer_sizes,
+    const std::vector<std::string>& inputList, // does not matter
+    const std::map<std::string, std::map<std::string, std::string>>& inputNameToFileMaps,
+    const std::map<std::string, std::vector<std::string>>& outputNames,
+    const std::map<std::string, std::map<std::string, size_t>>& model_buffer_sizes,
+    const std::map<std::string, std::map<std::string, size_t>>& model_output_buffer_sizes,
     const size_t& datasize,
     const bool isTFBuffer,
     const std::string& embeddingFile,
-    const std::string& dlcPath, 
-    const std::vector<std::string>& outputNames,
+    const std::vector<std::string>& dlcPaths,
     const uint32_t& NUM_ITERS,
     const std::string& udo_path,
     const bool use_udo,
-    const bool firstRun,
     const std::string& outputDir,
     const Free_Status exitAndFree,
     const int debugReturnCode);

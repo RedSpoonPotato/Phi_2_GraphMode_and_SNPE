@@ -41,7 +41,7 @@
 #include "SNPE/SNPEBuilder.hpp"
 
 
-zdl::DlSystem::Runtime_t checkRuntime(zdl::DlSystem::Runtime_t runtime)
+zdl::DlSystem::Runtime_t checkRuntime(const zdl::DlSystem::Runtime_t runtime)
 {
     static zdl::DlSystem::Version_t Version = zdl::SNPE::SNPEFactory::getLibraryVersion();
     static zdl::DlSystem::Runtime_t Runtime;
@@ -263,7 +263,7 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(
 
 void createUserBuffer(
     zdl::DlSystem::UserBufferMap& userBufferMap,
-    std::unordered_map<std::string, std::vector<uint8_t>>& applicationBuffers,
+    std::unordered_map<std::string, std::vector<uint8_t>*>& applicationBuffers,
     std::vector<std::unique_ptr<zdl::DlSystem::IUserBuffer>>& snpeUserBackedBuffers,
     std::unique_ptr<zdl::SNPE::SNPE>& snpe,
     const char* name,
@@ -344,18 +344,18 @@ void createUserBuffer(
 //    zdl::DlSystem::UserBufferEncodingFloat userBufferEncodingFloat;
    // create user-backed storage to load input data onto it
    // applicationBuffers.emplace(name, std::vector<uint8_t>(bufSize)); // was in the orginal
-   std::cout << applicationBuffers.at(name_std).size() << " >= " << bufSize << "?\n";
+   std::cout << (*(applicationBuffers.at(name_std))).size() << " >= " << bufSize << "?\n";
    // assert(applicationBuffers.at(name).size() == bufSize);
-   assert(applicationBuffers.at(name_std).size() >= bufSize); // modified to make more dynamic
+   assert((*(applicationBuffers.at(name_std))).size() >= bufSize); // modified to make more dynamic
    // create Qualcomm (R) Neural Processing SDK user buffer from the user-backed buffer
    zdl::DlSystem::IUserBufferFactory& ubFactory = zdl::SNPE::SNPEFactory::getUserBufferFactory();
 
    std::cout << "ubFactory memory address: " << &ubFactory << "\n";
 
-    std::cout << "applicationBuffers.at(name).data(): " << (void*)(applicationBuffers.at(name_std).data()) << "\n";
+    std::cout << "applicationBuffers.at(name).data(): " << (void*)((*(applicationBuffers.at(name_std))).data()) << "\n";
 
     // temp
-    auto x3 = ubFactory.createUserBuffer(applicationBuffers.at(name).data(),
+    auto x3 = ubFactory.createUserBuffer((*(applicationBuffers.at(name_std))).data(),
                                                               bufSize,
                                                               strides,
                                                               userBufferEncoding.get());
@@ -370,7 +370,7 @@ void createUserBuffer(
     // end of temp
 
 
-   snpeUserBackedBuffers.push_back(ubFactory.createUserBuffer(applicationBuffers.at(name).data(),
+   snpeUserBackedBuffers.push_back(ubFactory.createUserBuffer((*(applicationBuffers.at(name_std))).data(),
                                                               bufSize,
                                                               strides,
                                                               userBufferEncoding.get()));
@@ -403,7 +403,7 @@ void createUserBuffer(
 
 void modifyUserBuffer(
     zdl::DlSystem::UserBufferMap& userBufferMap,
-    std::unordered_map<std::string, std::vector<uint8_t>>& applicationBuffers,
+    std::unordered_map<std::string, std::vector<uint8_t>*>& applicationBuffers,
     std::vector<std::unique_ptr<zdl::DlSystem::IUserBuffer>>& snpeUserBackedBuffers,
     std::unique_ptr<zdl::SNPE::SNPE>& snpe,
     const char* name,
@@ -428,11 +428,11 @@ void modifyUserBuffer(
     assert(bufferElementSize == datasize); // probably fial for now
     size_t bufSize = calcSizeFromDims(bufferShape.getDimensions(), bufferShape.rank(), bufferElementSize);
     zdl::DlSystem::UserBufferEncodingFloat userBufferEncodingFloat;
-    std::cout << applicationBuffers.at(name).size() << " >= " << bufSize << "?\n";
-    assert(applicationBuffers.at(name).size() >= bufSize);
+    std::cout << (*(applicationBuffers.at(name))).size() << " >= " << bufSize << "?\n";
+    assert((*(applicationBuffers.at(name))).size() >= bufSize);
     zdl::DlSystem::IUserBufferFactory& ubFactory = zdl::SNPE::SNPEFactory::getUserBufferFactory();
 
-    snpeUserBackedBuffers[ibuffer_index] = ubFactory.createUserBuffer(applicationBuffers.at(name).data(),
+    snpeUserBackedBuffers[ibuffer_index] = ubFactory.createUserBuffer((*(applicationBuffers.at(name))).data(),
                                                               bufSize,
                                                               strides,
                                                               &userBufferEncodingFloat);
@@ -440,38 +440,38 @@ void modifyUserBuffer(
     userBufferMap.add(name, snpeUserBackedBuffers[ibuffer_index].get());
 }
 
-void loadInputUserBuffer(
-    std::unordered_map<std::string, std::vector<uint8_t>>& applicationBuffers,
-    std::unique_ptr<zdl::SNPE::SNPE>& snpe,
-    const std::string& fileLine)
-{
-    // get input tensor names of the network that need to be populated
-    const auto& inputNamesOpt = snpe->getInputTensorNames();
-    if (!inputNamesOpt) throw std::runtime_error("Error obtaining input tensor names");
-    const zdl::DlSystem::StringList& inputNames = *inputNamesOpt;
-    assert(inputNames.size() > 0);
-    // treat each line as a space-separated list of input files
-    std::vector<std::string> filePaths;
-    split(filePaths, fileLine, ' ');
-    // remove the line below
-    for (int i = 0; i < filePaths.size(); i++) {std::cout << filePaths[i] << " ";} std::cout << "\n";
-    if (inputNames.size()) std::cout << "Processing DNN Input: " << std::endl;
-    for (size_t i = 0; i < inputNames.size(); i++) {
-        const char* name = inputNames.at(i);
-        std::string filePath(filePaths[i]);
-        // print out which file is being processed
-        std::cout << "\t" << i + 1 << ") " << filePath << std::endl;
-        // load file content onto application storage buffer,
-        // on top of which, Qualcomm (R) Neural Processing SDK has created a user buffer
-        std::cout << "(name): " << name << "\n";
-        std::cout << "filePath: " << filePath << "\n";
-        std::string temp_name = std::string(name);
-        assert(filePath.substr(0, filePath.size()-4) == temp_name.substr(0, temp_name.size()-2));
-        applicationBuffers.at(name);
-        std::cout << "going into load file in vector of size: " << applicationBuffers.at(name).size() << "\n";
-        bool temp = loadByteDataFile(filePath, applicationBuffers.at(name));
-    };
-}
+// void loadInputUserBuffer(
+//     std::unordered_map<std::string, std::vector<uint8_t>>& applicationBuffers,
+//     std::unique_ptr<zdl::SNPE::SNPE>& snpe,
+//     const std::string& fileLine)
+// {
+//     // get input tensor names of the network that need to be populated
+//     const auto& inputNamesOpt = snpe->getInputTensorNames();
+//     if (!inputNamesOpt) throw std::runtime_error("Error obtaining input tensor names");
+//     const zdl::DlSystem::StringList& inputNames = *inputNamesOpt;
+//     assert(inputNames.size() > 0);
+//     // treat each line as a space-separated list of input files
+//     std::vector<std::string> filePaths;
+//     split(filePaths, fileLine, ' ');
+//     // remove the line below
+//     for (int i = 0; i < filePaths.size(); i++) {std::cout << filePaths[i] << " ";} std::cout << "\n";
+//     if (inputNames.size()) std::cout << "Processing DNN Input: " << std::endl;
+//     for (size_t i = 0; i < inputNames.size(); i++) {
+//         const char* name = inputNames.at(i);
+//         std::string filePath(filePaths[i]);
+//         // print out which file is being processed
+//         std::cout << "\t" << i + 1 << ") " << filePath << std::endl;
+//         // load file content onto application storage buffer,
+//         // on top of which, Qualcomm (R) Neural Processing SDK has created a user buffer
+//         std::cout << "(name): " << name << "\n";
+//         std::cout << "filePath: " << filePath << "\n";
+//         std::string temp_name = std::string(name);
+//         assert(filePath.substr(0, filePath.size()-4) == temp_name.substr(0, temp_name.size()-2));
+//         applicationBuffers.at(name);
+//         std::cout << "going into load file in vector of size: " << applicationBuffers.at(name).size() << "\n";
+//         bool temp = loadByteDataFile(filePath, applicationBuffers.at(name));
+//     };
+// }
 
 // template<typename T>
 // bool MyloadByteDataFile(const std::string& inputFile, std::vector<T>& loadVector)
@@ -543,6 +543,13 @@ void executeNetwork(
     });
 }
 
+std::vector<std::string> StringListToVector(zdl::DlSystem::StringList str_list) {
+    std::vector<std::string> vec;
+    for (int i = 0; i < str_list.size(); i++) {
+        vec.push_back(str_list.at(i));
+    }
+    return vec;
+}
 
 
 #endif

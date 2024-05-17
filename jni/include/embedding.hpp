@@ -66,6 +66,21 @@ void writeEmbedding(
     /* write data to output buffer */
     std::cout << "calling VecOfVec\n";
     writeVecofVec(embedding_slice, output);
+}
+
+template <typename T>
+void writeEmbedding_old(
+    std::string filename, const std::vector<uint32_t>& input_ids, 
+    uint32_t rowSize,
+    T* output)
+{
+    /* grab embedding slice from table in storage */
+    std::vector<std::vector<T>> embedding_slice;
+    read_embedding(filename, input_ids, rowSize, embedding_slice);
+    assert(embedding_slice[0].size() == rowSize && rowSize == HIDDEN_SIZE);
+    /* write data to output buffer */
+    std::cout << "calling VecOfVec\n";
+    writeVecofVec(embedding_slice, output);
     /* write output shape to output buffer */
     std::cout << "writing ptr\n";
     uint32_t* ptr = (uint32_t*)&output[MAX_SEQ_LEN * HIDDEN_SIZE];
