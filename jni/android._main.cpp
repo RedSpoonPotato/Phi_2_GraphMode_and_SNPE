@@ -9,11 +9,13 @@ This is built for running the phi-2 model with the htp
 // #include "include/android_main.h"
 #include "tokenizer.hpp"
 #include "embedding.hpp"
+#include "operations.h"
 
 #include <cassert>
 #include <iostream>
 #include <vector>
 #include <map>
+#include <cstdlib>
 
 #define LLM
 
@@ -31,17 +33,22 @@ std::string modelLaunch(
     const bool isTFBuffer,
     const std::string& embeddingFile,
     const std::vector<std::string>& dlcPaths, 
-    const uint32_t& NUM_ITERS,
+    const uint32_t& max_iterations,
     const std::string& udo_path,
     const bool use_udo,
     const std::string& outputDir,
     const Free_Status exitAndFree,
-    const int debugReturnCode) {
+    const int debugReturnCode,
+    const uint32_t end_token_id,
+    const bool use_end_token_id) {
 
-    bool simple_exec = true;
+    bool simple_exec = false;
+
+    static bool first_run = true;
+
 
     // change this later when you make multiple calls
-    bool kv_empty = true;
+    // bool kv_empty = true;
 
     /* set debug flag */
     bool debug = false;
@@ -49,10 +56,16 @@ std::string modelLaunch(
         debug = true;
     #endif
 
+    // mgiht also fail if max_iterations equals exactly MAX_SEQ_LEN (u should test)
+    if (max_iterations > MAX_SEQ_LEN) {
+        return "Error, max_iterations(" + std::to_string(max_iterations) + ") greater than MAX_SEQ_LEN("
+         + std::to_string(MAX_SEQ_LEN) + ")\n";
+    }
+
     /* grab cmd-line model information */
     // static std::vector<ModelRuntime>* models = new std::vector<ModelRuntime>(1);
 
-    int num_models = dlcPaths.size();
+    // int num_models = dlcPaths.size();
 
     // static std::map<std::string, ModelRuntime>* models = new std::map<std::string, ModelRuntime>();
 
@@ -61,71 +74,70 @@ std::string modelLaunch(
         dlcPaths,
         inputNameToFileMaps,
         outputNames
-        );
+    );
 
     /* memory buffers */
-    const size_t max_seq_len = 2048;
-    const size_t hidden_size = 2560;
+    // const size_t max_seq_len = 2048;
+    // const size_t hidden_size = 2560;
 
     // for now, using un-qunatization using between buffers (does not have to be this way)
-    // therefore, usiing 32-bit sized buffers rather than 8-bit
-    static auto buff_1      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_2      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_3      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_4      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_5      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_3_1    =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_4_1    =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_5_1    =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_6      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_7      =   std::vector<uint8_t>(max_seq_len * max_seq_len * 4);
-    static auto buff_8      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_9      =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
-    static auto buff_10     =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
+    // therefore, using 32-bit sized buffers rather than 8-bit
+    static auto buff_1      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_2      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_3      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_4      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_5      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    // static auto buff_3_1    =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
+    // static auto buff_4_1    =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
+    // static auto buff_5_1    =   std::vector<uint8_t>(max_seq_len * hidden_size * 4);
+    static auto buff_6      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_7      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_8      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_9      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
+    static auto buff_10     =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4);
 
-    /* linking buffers */
-    for (size_t i = 0; i < DECODERS; i++) {
-        std::string i_str = std::to_string(i);
-        (*models)["P1_reshaped_" + i_str].applicationInputBuffers["residual:0"] = &buff_1;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["hidden_states:0"] = &buff_2;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
-    }
+    /* NOTE: REMEBER TO FILL THESE UP */
+    static auto sin_cached  = std::vector<uint8_t>(SIN_COS_BUFF_SIZE);
+    static auto cos_cached  = std::vector<uint8_t>(SIN_COS_BUFF_SIZE);
+    
+    // might be a way to optimize the 2 below (just use sin_cached)
+    static auto sin_buff    = std::vector<uint8_t>(SIN_COS_BUFF_SIZE);
+    static auto cos_buff    = std::vector<uint8_t>(SIN_COS_BUFF_SIZE);
 
-    (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"] = &buff_3_1;
-    (*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"] = &buff_4_1;
-    (*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"] = &buff_7;
-    (*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+    // static auto key_cache   = std::vector<uint8_t>(DECODERS * MAX_SEQ_LEN * HIDDEN_SIZE * sizeof(uint8_t));
+    // static auto value_cache = std::vector<uint8_t>(DECODERS * MAX_SEQ_LEN * HIDDEN_SIZE * sizeof(uint8_t));
 
-    (*models)["P2_not_first_reshaped"].applicationInputBuffers["query_states_0:0"] = &buff_3_1;
-    (*models)["P2_not_first_reshaped"].applicationInputBuffers["key_states_0:0"] = &buff_4_1;
-    (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7;
-    (*models)["P2_not_first_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+    // could optimize by ensuring the max size of each buffer is bounded to a lower size
+    static auto query_rot_buff  = std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE);
+    static auto query_pass_buff = std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE);
+    static auto key_rot_buff    = std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE);
+    static auto key_pass_buff   = std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE);
 
-    (*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"] = &buff_5_1;
-    (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_9;
+    static auto k_cache = std::vector<std::vector<uint8_t>>(DECODERS);
+    static auto v_cache = std::vector<std::vector<uint8_t>>(DECODERS);
+    for (auto& vec : k_cache) { vec.resize(MAX_SEQ_LEN * HIDDEN_SIZE); }
+    for (auto& vec : v_cache) { vec.resize(MAX_SEQ_LEN * HIDDEN_SIZE); }
 
-    (*models)["P3_not_first_reshaped"].applicationInputBuffers["attn_weights_0:0"] = &buff_8;
-    (*models)["P3_not_first_reshaped"].applicationInputBuffers["value_states_0:0"] = &buff_5_1;
-    (*models)["P3_not_first_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_8;
+    /* shapes */
+    auto query_shape         = std::vector<size_t>();
+    auto key_shape           = std::vector<size_t>();
+    auto value_shape         = std::vector<size_t>();
+    auto sin_cached_shape    = std::vector<size_t>();
+    auto cos_cached_shape    = std::vector<size_t>();
+    auto sin_shape           = std::vector<size_t>();
+    auto cos_shape           = std::vector<size_t>();
+    auto query_rot_buff_dims = std::vector<size_t>();
+    auto query_pass_buff_dims = std::vector<size_t>();
+    auto key_rot_buff_dims   = std::vector<size_t>();
+    auto key_pass_buff_dims  = std::vector<size_t>();
+    auto key_cache_shape     = std::vector<size_t>();
+    auto value_cache_shape   = std::vector<size_t>();
 
-    for (size_t i = 0; i < DECODERS; i++) {
-        std::string i_str = std::to_string(i);
-        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["attn_weights:0"] = &buff_9;
-        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_6;
-        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["residual:0"] = &buff_1;
-        (*models)["P4_reshaped_" + i_str].applicationOutputBuffers["decoder_output:0"] = &buff_10;
-    }
+    const int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
+    std::vector<int> position_ids;
 
 
-
-    /* other buffers */
-    static auto kv_cache    =   std::vector<std::vector<float>>(DECODERS);
-    size_t kv_datasize = 4;
-    for (auto& vec : kv_cache) { vec.resize(max_seq_len * hidden_size * kv_datasize * 2); }
+// REMEMBER: TO LATER ADD QUANTIZATION IN BETWWEN STEPS
 
     /*
         TIP: DONT USE VECTORS, use maps or indivdual variables instead
@@ -263,6 +275,10 @@ std::string modelLaunch(
         /* allocate output buffer */
         // allocate_model_output_buffers(*models, model_output_buffer_sizes, datasize, isTFBuffer, 2);
 
+        linkBuffers(models, buff_1, buff_2, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8, buff_9, buff_10);
+        loadAndQuantize(sin_cached, srcDIR + "/sin.bin");
+        loadAndQuantize(cos_cached, srcDIR + "/cos.bin");
+
         zdl::SNPE::SNPEFactory::terminateLogging();
     }
 
@@ -284,6 +300,7 @@ std::string modelLaunch(
     #ifdef LLM
     std::vector<uint32_t> token_collection;
     tokenize_generate(input_txt, token_collection);
+    for (int i = 0; i < token_collection.size(); i++) { position_ids.push_back(i); }
 
 
     if (debugReturnCode == 7) { return "7"; }
@@ -292,6 +309,10 @@ std::string modelLaunch(
 
     uint32_t tot_seq_len = tokens.size();
     uint32_t next_token;
+
+    query_shape = {1, 32, tot_seq_len, 80};
+    key_shape   = {1, 32, tot_seq_len, 80};
+    value_shape = {1, 32, tot_seq_len, 80};
 
     /* if kv_cache is supposed to be empty, dims should be [0,0,0,0] */
     // if (kv_empty) {
@@ -303,8 +324,8 @@ std::string modelLaunch(
 
     #endif
 
-    for (uint32_t iteration_num = 0; iteration_num < NUM_ITERS; iteration_num++) {
-
+    for (uint32_t iteration_num = 0; iteration_num < max_iterations; iteration_num++) {
+        
         #ifdef LLM
 
             #ifdef DEBUG
@@ -350,10 +371,39 @@ std::string modelLaunch(
                     std::string i_str = std::to_string(i);
                     execute(*models, "P1_reshaped_" + i_str);
                     /* implement processing */
-                    func(
-                        buff_3, buff_3_1, buff_4, buff_4_1, buff_5, buff_5_1,
-                        
-                        );
+                    // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
+                    sin_cached_shape = {MAX_SEQ_LEN, 32};
+                    cos_cached_shape = {MAX_SEQ_LEN, 32};
+
+                    DynamicTruncationAndConcatentation(
+                        buff_3.data(),
+                        buff_4.data(),
+                        buff_5.data(),
+                        sin_cached.data(), // (11, 32) - (12, 32)
+                        cos_cached.data(),
+                        sin_buff.data(),
+                        cos_buff.data(),
+                        k_cache[i].data(), // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
+                        v_cache[i].data(), // same as key_cache
+                        query_rot_buff.data(),
+                        query_pass_buff.data(),
+                        key_rot_buff.data(),
+                        key_pass_buff.data(),
+                        query_shape, // set
+                        key_shape, // set
+                        value_shape, // set
+                        sin_cached_shape, // set
+                        cos_cached_shape, // set
+                        sin_shape, // wil be set
+                        cos_shape, // will be set
+                        key_cache_shape, // intially it should not be set
+                        value_cache_shape, // intially it should not be set
+                        query_rot_buff_dims, // will be set
+                        query_pass_buff_dims, // will be set
+                        key_rot_buff_dims, // will be set
+                        key_pass_buff_dims, // will be set
+                        rotary_emb_dim, // set
+                        position_ids); // set
 
                     if (iteration_num == 0) {
                         execute(*models, "P2_1_first_buffered");
@@ -404,14 +454,12 @@ std::string modelLaunch(
             #ifdef DEBUG
                 std::cout << "calling copyKV\n";
             #endif
-            copyKV(
-                (datatype*)(*models)[0].applicationOutputBuffers["Output_1:0"].data(),
-                (datatype*)(*models)[0].applicationInputBuffers["hidden_states_and_kv:0"].data());
 
             if (debugReturnCode == 12) { return "12"; }
 
             /* grab next token */
-            next_token = ((uint32_t*)(*models)[0].applicationOutputBuffers["Output_1:0"].data())[0];
+            // the line below is old, FIX IT
+            // next_token = ((uint32_t*)(*models)[0].applicationOutputBuffers["Output_1:0"].data())[0];
             #ifdef DEBUG
                 std::cout << "next token grabbed: " << next_token << "\n";
             #endif
@@ -421,6 +469,10 @@ std::string modelLaunch(
             tokens = std::vector<uint32_t> {next_token};
 
             tot_seq_len++;
+
+            if (use_end_token_id && next_token == end_token_id) {
+                break; 
+            }
 
             /* reshape */
             // reshape stuff for the next run
@@ -435,17 +487,23 @@ std::string modelLaunch(
                     {"attn_weights_0:0", {tot_seq_len, 32, 1}},
                     {"value_states_0:0", {tot_seq_len, 32, 80}}
                 }, datasize);
+            // QUESTION: DOES THE CODE BELOW ONLY NEED TO RUN ONCE?
             for (size_t i = 0; i < DECODERS; i++) {
                 reshapeModels(*models, "P1_reshaped_" + std::to_string(i),
-                    {{"residual:0", {1, hidden_size}}}, datasize);
+                    {{"residual:0", {1, HIDDEN_SIZE}}}, datasize);
                 reshapeModels(*models, "P4_reshaped_" + std::to_string(i),
                 {
-                    {"attn_output_0:0", {1, hidden_size}},
-                    {"feed_forward_hidden_states:0", {1, hidden_size}},
-                    {"residual:0", {1, hidden_size}}
+                    {"attn_output_0:0", {1, HIDDEN_SIZE}},
+                    {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
+                    {"residual:0", {1, HIDDEN_SIZE}}
                 }, datasize);
             }
-            
+            position_ids.resize(1);
+            position_ids[0] = tot_seq_len - 1;
+            query_shape = {1, 32, 1, 80};
+            key_shape   = {1, 32, 1, 80};
+            value_shape = {1, 32, 1, 80};
+
             #ifdef DEBUG
                 std::cout << "checkpoint 1\n";
             #endif
