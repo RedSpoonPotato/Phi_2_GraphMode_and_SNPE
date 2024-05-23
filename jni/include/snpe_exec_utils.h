@@ -256,6 +256,85 @@ void loadFile(std::vector<uint8_t>& vec, const std::string& filePath) {
     file.close();
 }
 
+// void quantizeSinCos(std::vector<uint8_t>& sin, std::vector<uint8_t> cos) {
+
+// }
+
+void loadAndQuantize(
+    std::vector<uint8_t>& buff, 
+    const std::string& filePath
+) {
+    // grab fp32 data
+    std::vector<uint8_t> temp_buff;
+    loadFile(temp_buff, filePath);
+    // quantize to uint8
+    // (this might be a horrible result, print the results)
+    unsigned char stepEquivalentTo0 = 0;
+    float quantizedStepSize = 0;
+    FloatToTfN(buff.data(),
+                stepEquivalentTo0,
+                quantizedStepSize,
+                false,
+                (float*)temp_buff.data(),
+                temp_buff.size() / 4,
+                8);
+    // can remove this later
+    std::cout << "testing the results of the qunantization:\n";
+    for (int i = 0; i < 5; i++) { std::cout << buff[i] << " "; } 
+    std::cout << "\n";
+}
+
+void linkBuffers(
+    std::map<std::string, ModelRuntime> *models,
+    std::vector<uint8_t>& buff_1,
+    std::vector<uint8_t>& buff_2,
+    std::vector<uint8_t>& buff_3,
+    std::vector<uint8_t>& buff_4,
+    std::vector<uint8_t>& buff_5,
+    std::vector<uint8_t>& buff_6,
+    std::vector<uint8_t>& buff_7,
+    std::vector<uint8_t>& buff_8,
+    std::vector<uint8_t>& buff_9,
+    std::vector<uint8_t>& buff_10
+) {
+        /* linking buffers */
+    for (size_t i = 0; i < DECODERS; i++) {
+        std::string i_str = std::to_string(i);
+        (*models)["P1_reshaped_" + i_str].applicationInputBuffers["residual:0"] = &buff_1;
+        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["hidden_states:0"] = &buff_2;
+        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
+        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
+        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
+        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
+    }
+
+    (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"] = &buff_3;
+    (*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"] = &buff_4;
+    (*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"] = &buff_7;
+    (*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+
+    (*models)["P2_not_first_reshaped"].applicationInputBuffers["query_states_0:0"] = &buff_3;
+    (*models)["P2_not_first_reshaped"].applicationInputBuffers["key_states_0:0"] = &buff_4;
+    (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7;
+    (*models)["P2_not_first_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+
+    (*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"] = &buff_5;
+    (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_9;
+
+    (*models)["P3_not_first_reshaped"].applicationInputBuffers["attn_weights_0:0"] = &buff_8;
+    (*models)["P3_not_first_reshaped"].applicationInputBuffers["value_states_0:0"] = &buff_5;
+    (*models)["P3_not_first_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_8;
+
+    for (size_t i = 0; i < DECODERS; i++) {
+        std::string i_str = std::to_string(i);
+        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["attn_weights:0"] = &buff_9;
+        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_6;
+        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["residual:0"] = &buff_1;
+        (*models)["P4_reshaped_" + i_str].applicationOutputBuffers["decoder_output:0"] = &buff_10;
+    }
+}
+
 // std::string intialize_model_runtime(
 //     std::vector<ModelRuntime>& runtimes, 
 //     const std::vector<DlSystem::Runtime_t>& runtime_modes) 

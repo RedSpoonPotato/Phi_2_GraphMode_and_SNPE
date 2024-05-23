@@ -35,12 +35,14 @@ std::string modelLaunch(
     const size_t& datasize,
     const bool isTFBuffer,
     const std::string& embeddingFile,
-    const std::vector<std::string>& dlcPaths,
-    const uint32_t& NUM_ITERS,
+    const std::vector<std::string>& dlcPaths, 
+    const uint32_t& max_iterations,
     const std::string& udo_path,
     const bool use_udo,
     const std::string& outputDir,
     const Free_Status exitAndFree,
-    const int debugReturnCode);
+    const int debugReturnCode,
+    const uint32_t end_token_id,
+    const bool use_end_token_id);
 
 #endif
