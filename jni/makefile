@@ -18,7 +18,7 @@ SO_FILE := libmain.so
 SRC_DIR  := ./
 OBJ_DIR  := obj/local/x86_64-linux-clang
 
-EXCLUDE_FILES := test.cpp main.cpp main_alt.cpp htp_main_no_udo.cpp load_test.cpp android_main_htp_non_udo.cpp
+EXCLUDE_FILES := test.cpp main.cpp load_test_old.cpp main_alt.cpp htp_main_no_udo.cpp load_test.cpp android_main_htp_non_udo.cpp
 
 # goal is to compile: android_main.cpp
 
