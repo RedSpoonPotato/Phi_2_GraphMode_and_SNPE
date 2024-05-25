@@ -15,7 +15,7 @@
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-
+#include <set>
 
 
 
@@ -40,11 +40,12 @@
 // 1 per model
 struct ModelRuntime {
     // model info stuff
-    std::string model;
-    // std::vector<std::string> inputs;
-    std::map<std::string, std::string> inputNameToFileMap;
+    std::string dlc_path;
+    std::vector<std::string> input_names; // should match the dlc input names (verified by VerifyIO())
+    // std::map<std::string, std::string> inputNameToFileMap;  
 
-    std::vector<std::string> outputs;
+
+    std::vector<std::string> output_names;
 
     std::unordered_map<std::string, std::vector<uint8_t>*> applicationInputBuffers;
     std::unordered_map<std::string, std::vector<uint8_t>*> applicationOutputBuffers;
@@ -110,23 +111,16 @@ struct ModelRuntime {
 //     return;
 // }
 
+// setting model_name(key), and the absolute dlc path
 std::map<std::string, ModelRuntime>* modelDictCreator(
-    const std::vector<std::string>& names, 
-    const std::map<std::string, std::map<std::string, std::string>>& fileNameToBufferMaps,
-    const std::map<std::string, std::vector<std::string>>& outputNames) 
+    const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths)   
 {
     auto map_ptr = new std::map<std::string, ModelRuntime>();
-    for (const std::string& model_name : names) {
+    for (const auto& pair : ModelNameAndPaths) {
+        const std::string& model_name = pair.first;
+        const std::string& dlcPath = pair.second;
         (*map_ptr).emplace(model_name);
-        // set InputNameToFileMap
-        (*map_ptr)[model_name].inputNameToFileMap = fileNameToBufferMaps.at(model_name);
-        // set inputs
-        // for (const auto& pair : (*map_ptr)[model_name].inputNameToFileMap) {
-        //     const std::string& input_name = pair.first;
-        //     (*map_ptr)[model_name].inputs.push_back(input_name);
-        // }
-        // set outputs
-        (*map_ptr)[model_name].outputs = outputNames.at(model_name);
+        (*map_ptr).at(model_name).dlc_path = dlcPath;
     }
     return map_ptr;
 }
@@ -146,27 +140,29 @@ bool haveSameElements(const std::vector<T>& vec1, const std::vector<T>& vec2) {
 }
 
 // ensures names of each ModelRuntime IO matches with their dlc
-bool verifyModelsIO(const std::map<std::string, ModelRuntime>& models) {
-    for (const auto& pair : models) {
-        const std::string& model_name = pair.first;
-        // verify inputs
-        std::vector<std::string> input_vec = StringListToVector(models.at(model_name).snpe->getInputTensorNames());
-        assert(input_vec.size() == models.at(model_name).inputNameToFileMap.size());
-        for (int i = 0; i < input_vec.size(); i++) {
-            const std::string& input_name = input_vec[i];
-            auto iter = models.at(model_name).inputNameToFileMap.find(input_name);
-            if (iter == models.at(model_name).inputNameToFileMap.end()) {
-                return false;
-            }
-        }
-        // verify outputs
-        std::vector<std::string> output_vec = StringListToVector(models.at(model_name).snpe->getOutputTensorNames());
-        if (!haveSameElements(output_vec, models.at(model_name).outputs)) {
-            return false;
-        }
-    }
-    return true;
-}
+// bool verifyModelsIO(const std::map<std::string, ModelRuntime>& models) {
+//     for (const auto& pair : models) {
+//         const std::string& model_name = pair.first;
+//         // verify inputs
+//         std::vector<std::string> input_vec = StringListToVector(models.at(model_name).snpe->getInputTensorNames());
+//         assert(input_vec.size() == models.at(model_name).inputNameToFileMap.size());
+//         for (int i = 0; i < input_vec.size(); i++) {
+//             const std::string& input_name = input_vec[i];
+//             auto iter = models.at(model_name).inputNameToFileMap.find(input_name);
+//             if (iter == models.at(model_name).inputNameToFileMap.end()) {
+//                 return false;
+//             }
+//         }
+//         // verify outputs
+//         std::vector<std::string> output_vec = StringListToVector(models.at(model_name).snpe->getOutputTensorNames());
+//         if (!haveSameElements(output_vec, models.at(model_name).outputs)) {
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
+
 
 // void loadInputMap(
 //     std::map<std::string, ModelRuntime>& models,
@@ -434,34 +430,36 @@ std::string intialize_model_runtime(
     assert(runtime_modes.size() == num_models);
 
     for (auto const& pair : runtimes) {
-        const std::string& str = pair.first;
-        runtimes[str].applicationInputBuffers = std::unordered_map<std::string, std::vector<uint8_t>*>();
-        runtimes[str].applicationOutputBuffers = std::unordered_map<std::string, std::vector<uint8_t>*>();
-        runtimes[str].inputMap = zdl::DlSystem::UserBufferMap();
-        runtimes[str].outputMap = zdl::DlSystem::UserBufferMap();
+        const std::string& model = pair.first;
+        runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
+        runtimes[model].output_names = StringListToVector(runtimes[model].snpe->getOutputTensorNames());
+        runtimes[model].applicationInputBuffers = std::unordered_map<std::string, std::vector<uint8_t>*>();
+        runtimes[model].applicationOutputBuffers = std::unordered_map<std::string, std::vector<uint8_t>*>();
+        runtimes[model].inputMap = zdl::DlSystem::UserBufferMap();
+        runtimes[model].outputMap = zdl::DlSystem::UserBufferMap();
         // runtime_modes[str];
-        runtimes[str].runtime = checkRuntime(runtime_modes.at(str));
-        runtimes[str].runtimeList.add(runtimes[str].runtime);
-        std::cout << "platform config options: " << runtimes[str].platformConfig.getPlatformOptions() << "\n";
+        runtimes[model].runtime = checkRuntime(runtime_modes.at(model));
+        runtimes[model].runtimeList.add(runtimes[model].runtime);
+        std::cout << "platform config options: " << runtimes[model].platformConfig.getPlatformOptions() << "\n";
         // runtimes[str].platformConfig.
 
         /* old way, chagen later back to new way */
         // runtimes[str].container = loadContainerFromFile(runtimes[str].model);
 
 
-        std::cout << "loading file: " << runtimes[str].model << "\n";
+        std::cout << "loading file: " << runtimes[model].dlc_path << "\n";
         #ifdef DEBUG
             auto start = std::chrono::high_resolution_clock::now();
         #endif 
 
         /* new way of loading dlc */
-        loadFile(runtimes[str].dlc_buff, runtimes[str].model);
-        runtimes[str].container = loadContainerFromVector(runtimes[str].dlc_buff);
+        loadFile(runtimes[model].dlc_buff, runtimes[model].dlc_path);
+        runtimes[model].container = loadContainerFromVector(runtimes[model].dlc_buff);
 
         #ifdef DEBUG
             auto end = std::chrono::high_resolution_clock::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-            std::cout << "time to load model " << runtimes[str].model << ": " << duration << "ms\n";
+            std::cout << "time to load model " << runtimes[model].dlc_path << ": " << duration << "ms\n";
         #endif
 
         #ifdef DEBUG
@@ -471,10 +469,10 @@ std::string intialize_model_runtime(
         // runtimes[str].snpe = setBuilderOptions(runtimes[str].container, runtimes[str].runtime, true);
         
         /* testing reshaping */
-        std::unordered_map<std::string, std::vector<size_t>> new_map;
+        // std::unordered_map<std::string, std::vector<size_t>> new_map;
         // new_map["vector:0"] = {2, 1, 1, int(1e3)};
-        new_map["vector:0"] = {4, 100 / 2};
-        runtimes[str].snpe = setBuilderOptions(runtimes[str].container, runtimes[str].runtime, true, new_map);
+        // new_map["vector:0"] = {4, 100 / 2};
+        // runtimes[str].snpe = setBuilderOptions(runtimes[str].container, runtimes[str].runtime, true, new_map);
 
         /* testing IO changes */
         // std::unordered_map<std::string, std::tuple<std::vector<size_t>, zdl::DlSystem::IOBufferDataType_t>> dims_dict;
@@ -486,14 +484,14 @@ std::string intialize_model_runtime(
 
         
         /* testing platformConfig*/
-        std::cout << "runtime: " <<  DlSystem::RuntimeList::runtimeToString(runtimes[str].runtime) << "\n";
-        std::cout << "using platformConfig case\n";
+        // std::cout << "runtime: " <<  DlSystem::RuntimeList::runtimeToString(runtimes[model].runtime) << "\n";
+        // std::cout << "using platformConfig case\n";
         // runtimes[str].snpe = setBuilderOptions(runtimes[str].container, runtimes[str].runtimeList, true, runtimes[str].platformConfig);
 
         // using modified one from example (remove later)
-        bool useUserSuppliedBuffers = true;
-        bool useCaching = false;
-        bool cpuFixedPointMode = false;
+        // bool useUserSuppliedBuffers = true;
+        // bool useCaching = false;
+        // bool cpuFixedPointMode = false;
         // runtimes[str].snpe = setBuilderOptions_ex(runtimes[str].container,
         //                                         runtimes[str].runtime,
         //                                         runtimes[str].runtimeList,
@@ -510,7 +508,7 @@ std::string intialize_model_runtime(
         #ifdef DEBUG
             auto end_2 = std::chrono::high_resolution_clock::now();
             auto duration_2 = std::chrono::duration_cast<std::chrono::milliseconds>(end_2 - start_2).count();
-            std::cout << "time to build model " << runtimes[str].model << ": " << duration_2 << "ms\n";
+            std::cout << "time to build model " << model << ": " << duration_2 << "ms\n";
         #endif
     }
     return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].container.get())) + "\n" + 
@@ -636,12 +634,11 @@ void create_user_buffers(
     for (auto& pair : runtimes) {
         const std::string& model_name = pair.first;
         // for (const auto& name_pair : model_buffer_sizes.at(model_name)) {
-        for (const auto& name_pair : runtimes[model_name].inputNameToFileMap) {
-            const std::string& input_name = name_pair.second;
+        for (const auto& input_name : runtimes[model_name].input_names) {
             createUserBuffer(runtimes[model_name].inputMap, runtimes[model_name].applicationInputBuffers,
                 runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
         }
-        for (const std::string& output_name : runtimes[model_name].outputs) {
+        for (const std::string& output_name : runtimes[model_name].output_names) {
             createUserBuffer(runtimes[model_name].outputMap, runtimes[model_name].applicationOutputBuffers,
                 runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
         }
@@ -657,14 +654,13 @@ void reshapeModels(
     models[model_name].snpe = setBuilderOptions(models[model_name].container, models[model_name].runtime, true, new_map);
     // for (const auto& models[model_name].)
     int i = 0;
-    for (const auto& pair : models[model_name].inputNameToFileMap) {
-        std::string input_name = pair.first;
+    for (const auto& input_name : models[model_name].input_names) {
         modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
             models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
         i++;
     }
     i = 0;
-    for (const std::string& output_name : models[model_name].outputs) {
+    for (const std::string& output_name : models[model_name].output_names) {
         modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
             models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
     }
@@ -794,27 +790,27 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 
 // works for multiple models
 // COMEBACK
-void intialize_input_buffers_custom(
-    std::map<std::string, ModelRuntime>& runtimes,
-    const std::string& srcDir)
-{
-    std::string filePath;
-    for (auto& pair : runtimes) {
-        const std::string& model_name = pair.first;
-        for (const auto& name_pair : runtimes[model_name].inputNameToFileMap) {
-            const std::string& input_name = name_pair.first;
-            const std::string& file_name = name_pair.second;
-            filePath = srcDir + "/" + file_name;
-            #ifdef DEBUG
-                std::cout << "for model(" << model_name << "), for input(" << input_name 
-                    << "), loading from file path(" << filePath  << ")\n";
-            #endif
-            int ret_code = loadFileIntoVec(
-                filePath, 
-                *(runtimes[model_name].applicationInputBuffers[input_name]));
-        }
-    }
-}
+// void intialize_input_buffers_custom(
+//     std::map<std::string, ModelRuntime>& runtimes,
+//     const std::string& srcDir)
+// {
+//     std::string filePath;
+//     for (auto& pair : runtimes) {
+//         const std::string& model_name = pair.first;
+//         for (const auto& name_pair : runtimes[model_name].inputNameToFileMap) {
+//             const std::string& input_name = name_pair.first;
+//             const std::string& file_name = name_pair.second;
+//             filePath = srcDir + "/" + file_name;
+//             #ifdef DEBUG
+//                 std::cout << "for model(" << model_name << "), for input(" << input_name 
+//                     << "), loading from file path(" << filePath  << ")\n";
+//             #endif
+//             int ret_code = loadFileIntoVec(
+//                 filePath, 
+//                 *(runtimes[model_name].applicationInputBuffers[input_name]));
+//         }
+//     }
+// }
 
 // void saveBuffer(const ModelRuntime& model_runtime, const std::string& OutputDir) {
 //     #ifdef DEBUG

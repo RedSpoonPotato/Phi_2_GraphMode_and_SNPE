@@ -26,20 +26,11 @@ runtime_modes: {
 std::string modelLaunch(
     const std::string& input_txt,
     const std::map<std::string, zdl::DlSystem::Runtime_t>& runtime_modes,
-    const std::string& srcDIR, 
-    const std::vector<std::string>& inputList, // does not matter
-    const std::map<std::string, std::map<std::string, std::string>>& inputNameToFileMaps,
-    const std::map<std::string, std::vector<std::string>>& outputNames,
-    const std::map<std::string, std::map<std::string, size_t>>& model_buffer_sizes,
-    const std::map<std::string, std::map<std::string, size_t>>& model_output_buffer_sizes,
     const size_t& datasize,
     const bool isTFBuffer,
-    const std::string& embeddingFile,
-    const std::vector<std::string>& dlcPaths, 
-    const uint32_t& max_iterations,
-    const std::string& udo_path,
-    const bool use_udo,
-    const std::string& outputDir,
+    const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths, // abs paths
+    const std::map<std::string, std::string>& otherPaths, // abs path of sin, cos, embeddingFIle
+    const uint32_t& max_iterations, 
     const Free_Status exitAndFree,
     const int debugReturnCode,
     const uint32_t end_token_id,
