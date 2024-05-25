@@ -23,20 +23,11 @@ This is built for running the phi-2 model with the htp
 std::string modelLaunch(
     const std::string& input_txt,
     const std::map<std::string, zdl::DlSystem::Runtime_t>& runtime_modes,
-    const std::string& srcDIR, 
-    const std::vector<std::string>& inputList, // does not matter
-    const std::map<std::string, std::map<std::string, std::string>>& inputNameToFileMaps,
-    const std::map<std::string, std::vector<std::string>>& outputNames,
-    const std::map<std::string, std::map<std::string, size_t>>& model_buffer_sizes,
-    const std::map<std::string, std::map<std::string, size_t>>& model_output_buffer_sizes,
     const size_t& datasize,
     const bool isTFBuffer,
-    const std::string& embeddingFile,
-    const std::vector<std::string>& dlcPaths, 
-    const uint32_t& max_iterations,
-    const std::string& udo_path,
-    const bool use_udo,
-    const std::string& outputDir,
+    const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths, // abs paths
+    const std::map<std::string, std::string>& otherPaths, // abs path of sin, cos, embeddingFIle
+    const uint32_t& max_iterations, 
     const Free_Status exitAndFree,
     const int debugReturnCode,
     const uint32_t end_token_id,
@@ -70,11 +61,7 @@ std::string modelLaunch(
     // static std::map<std::string, ModelRuntime>* models = new std::map<std::string, ModelRuntime>();
 
     /* sets each model with their inputs vector and inputNameToFile map */
-    static std::map<std::string, ModelRuntime>* models = modelDictCreator(
-        dlcPaths,
-        inputNameToFileMaps,
-        outputNames
-    );
+    static std::map<std::string, ModelRuntime>* models = modelDictCreator(ModelNameAndPaths);
 
     /* memory buffers */
     // const size_t max_seq_len = 2048;
@@ -234,12 +221,6 @@ std::string modelLaunch(
     if (intialize) {
         intialize = false;
 
-        /* load udo */
-        if (use_udo) {
-            int udo_load = Snpe_Util_AddOpPackage(udo_path.c_str());
-            assert(udo_load == 1);
-        }
-
         if (debugReturnCode == 2) { return "2"; }
 
         /* intialize runtimes */
@@ -247,7 +228,7 @@ std::string modelLaunch(
         
 
         /* Verify IO naming */
-        assert(verifyModelsIO(*models));
+        // assert(verifyModelsIO(*models));
         
 
         if (debugReturnCode == 3) { return "3"; }
@@ -264,11 +245,11 @@ std::string modelLaunch(
         if (debugReturnCode == 4) { return "4"; }
 
         /* intialize input buffer */
-        #ifndef LLM
-        intialize_input_buffers_custom(
-            *models,
-            srcDIR);
-        #endif
+        // #ifndef LLM
+        // intialize_input_buffers_custom(
+        //     *models,
+        //     srcDIR);
+        // #endif
 
         if (debugReturnCode == 5) { return "5"; }
 
@@ -276,8 +257,8 @@ std::string modelLaunch(
         // allocate_model_output_buffers(*models, model_output_buffer_sizes, datasize, isTFBuffer, 2);
 
         linkBuffers(models, buff_1, buff_2, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8, buff_9, buff_10);
-        loadAndQuantize(sin_cached, srcDIR + "/sin.bin");
-        loadAndQuantize(cos_cached, srcDIR + "/cos.bin");
+        loadAndQuantize(sin_cached, otherPaths.at("sin"));
+        loadAndQuantize(cos_cached, otherPaths.at("cos"));
 
         zdl::SNPE::SNPEFactory::terminateLogging();
     }
@@ -334,7 +315,7 @@ std::string modelLaunch(
 
             /* embedding layer */
             writeEmbedding( 
-                srcDIR + "/" + embeddingFile, 
+                otherPaths.at("embedding"),
                 tokens, 
                 HIDDEN_SIZE, 
                 (float*)(*(*models)["P1_reshaped_0"].applicationInputBuffers["residual:0"]).data()); 
