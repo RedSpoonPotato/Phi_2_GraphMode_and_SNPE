@@ -5,21 +5,9 @@
 #include <cstdint>
 #include <cassert>
 #include <iostream>
+#include <cmath>
 #include "main_macros.h"
 
-typedef uint8_t datatype;
-
-// vector print function
-template <typename T>
-void printV(const std::string& str, const std::vector<T>& vec) {
-    std::cout << str;
-    std::cout << ": [";
-    for (int i = 0; i < vec.size(); i++) {
-        std::cout << vec[i];
-        if (i != vec.size()-1) { std::cout << ", ";}
-    }
-    std::cout << "]\n";
-}
 
 template <typename T>
 void copyTensor(const T* ten1, T* out, const std::vector<size_t>& dims) {
@@ -30,10 +18,47 @@ void copyTensor(const T* ten1, T* out, const std::vector<size_t>& dims) {
     }
 }
 
+void layernorm_1d_32f(
+    const float* vec, const float* weight, const float* bias, float* out,
+    const int vec_len, const int weight_len, const float eps
+) {
+    // mean
+    float mean = 0;
+    for (int i = 0; i < vec_len; i++) { mean += vec[i]; }
+    mean = mean / vec_len;
+    // variance
+    float variance = 0;
+    for (int i = 0; i < vec_len; i++) { 
+        variance += pow(vec[i] - mean, 2); 
+    }
+    variance = variance / vec_len;
+    float variance_plus_eps_sprt = sqrt(variance + eps);
+    // output
+    for (int i = 0; i < vec_len; i++) { 
+        out[i] = (vec[i] - mean) / variance_plus_eps_sprt; 
+        out[i] = (out[i] * weight[i]) + bias[i];
+    }
+}
+
+void layernorm_Nd_32f(
+    const float* tensor, const float* weight, const float* bias, float* out,
+    const std::vector<uint32_t>& tensor_dims, const int weight_len,
+    const float eps
+) {
+    int num_vectors = 1;
+    int vec_len = tensor_dims.end()[-1];
+    for (int i = 0; i < tensor_dims.size() - 1; i++) { num_vectors *= tensor_dims[i]; }
+    for (int i = 0; i < num_vectors; i++) {
+        layernorm_1d_32f(
+            &tensor[i*weight_len], weight, bias, &out[i*weight_len],
+            vec_len, weight_len, eps);
+    }
+}
+
 // not input-to-output safe
 void truncate_u8(
-    const datatype* input, const std::vector<size_t>& input_dims,
-    datatype* output, std::vector<size_t>& output_dims,
+    const uint8_t* input, const std::vector<size_t>& input_dims,
+    uint8_t* output, std::vector<size_t>& output_dims,
     const std::vector<int>& dims_to_split,
     const std::vector<int>& values,
     const std::vector<int>& colon_lefts
@@ -106,12 +131,12 @@ void add_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::v
 
 // IMPORTANT NOTE: IGNORING FOR NOW WHEN SEQ_LEN GETS BIG
 void rotary_emb_u8(
-    const datatype* x, const std::vector<size_t>& x_dims,
+    const uint8_t* x, const std::vector<size_t>& x_dims,
     const int seq_len,
-    const datatype* sin_cached, const std::vector<size_t>& sin_cached_dims,
-    const datatype* cos_cached, const std::vector<size_t>& cos_cached_dims,
-    datatype* sin, std::vector<size_t>& sin_dims,
-    datatype* cos, std::vector<size_t>& cos_dims
+    const uint8_t* sin_cached, const std::vector<size_t>& sin_cached_dims,
+    const uint8_t* cos_cached, const std::vector<size_t>& cos_cached_dims,
+    uint8_t* sin, std::vector<size_t>& sin_dims,
+    uint8_t* cos, std::vector<size_t>& cos_dims
 ) {
     assert(seq_len <= SIN_COS_MAX_SEQ_LEN); // TEMP solution
     assert(sin_cached_dims.size() == cos_cached_dims.size());
@@ -367,7 +392,7 @@ void apply_rotary_pos_emb_u8(
 
 
 void transpose_u8(
-    const datatype* tensor, datatype* out, const std::vector<size_t>& perm,
+    const uint8_t* tensor, uint8_t* out, const std::vector<size_t>& perm,
     const std::vector<size_t>& tensor_dims, std::vector<size_t>& out_dims
 ) {
     // not safe to do inplace
@@ -435,10 +460,10 @@ void DynamicTruncationAndConcatentation(
     uint8_t* cos_buff,
     uint8_t* key_cache, // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
     uint8_t* value_cache, // same as key_cache
-    datatype* query_rot_buff,
-    datatype* query_pass_buff,
-    datatype* key_rot_buff,
-    datatype* key_pass_buff,
+    uint8_t* query_rot_buff,
+    uint8_t* query_pass_buff,
+    uint8_t* key_rot_buff,
+    uint8_t* key_pass_buff,
     std::vector<size_t>& query_shape,
     std::vector<size_t>& key_shape,
     std::vector<size_t>& value_shape,

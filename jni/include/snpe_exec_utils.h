@@ -119,11 +119,13 @@ std::map<std::string, ModelRuntime>* modelDictCreator(
     for (const auto& pair : ModelNameAndPaths) {
         const std::string& model_name = pair.first;
         const std::string& dlcPath = pair.second;
-        (*map_ptr).emplace(model_name);
+        (*map_ptr).emplace(model_name, ModelRuntime());
         (*map_ptr).at(model_name).dlc_path = dlcPath;
     }
     return map_ptr;
 }
+
+// could comment in later
 
 template<typename T>
 bool haveSameElements(const std::vector<T>& vec1, const std::vector<T>& vec2) {
@@ -256,6 +258,7 @@ void loadFile(std::vector<uint8_t>& vec, const std::string& filePath) {
 
 // }
 
+
 void loadAndQuantize(
     std::vector<uint8_t>& buff, 
     const std::string& filePath
@@ -280,6 +283,7 @@ void loadAndQuantize(
     std::cout << "\n";
 }
 
+
 void linkBuffers(
     std::map<std::string, ModelRuntime> *models,
     std::vector<uint8_t>& buff_1,
@@ -289,19 +293,23 @@ void linkBuffers(
     std::vector<uint8_t>& buff_5,
     std::vector<uint8_t>& buff_6,
     std::vector<uint8_t>& buff_7,
-    std::vector<uint8_t>& buff_8,
-    std::vector<uint8_t>& buff_9,
-    std::vector<uint8_t>& buff_10
+    std::vector<uint8_t>& buff_8
 ) {
-        /* linking buffers */
+
+    // this may not be able to be reshaped
+    (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_2;
+    (*models)["gelu"].applicationOutputBuffers["gelu_out:0"] = &buff_6;
+    
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        (*models)["P1_reshaped_" + i_str].applicationInputBuffers["residual:0"] = &buff_1;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["hidden_states:0"] = &buff_2;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
-        (*models)["P1_reshaped_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
+        (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_2; // new
+        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
+        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
+        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
+        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
+
+        (*models)["P1_2_reshaped_layer_" + i_str].applicationInputBuffers["gelu_fc1_out:0"] = &buff_2;
+        (*models)["P1_2_reshaped_layer_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
     }
 
     (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"] = &buff_3;
@@ -316,19 +324,22 @@ void linkBuffers(
 
     (*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"] = &buff_5;
     (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_9;
+    (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
 
-    (*models)["P3_not_first_reshaped"].applicationInputBuffers["attn_weights_0:0"] = &buff_8;
-    (*models)["P3_not_first_reshaped"].applicationInputBuffers["value_states_0:0"] = &buff_5;
-    (*models)["P3_not_first_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_8;
+    (*models)["P3_not_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
+    (*models)["P3_not_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    (*models)["P3_not_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
 
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["attn_weights:0"] = &buff_9;
-        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_6;
-        (*models)["P4_reshaped_" + i_str].applicationInputBuffers["residual:0"] = &buff_1;
-        (*models)["P4_reshaped_" + i_str].applicationOutputBuffers["decoder_output:0"] = &buff_10;
+        (*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"] = &buff_3;
+        (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_2;
     }
+
+    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_2;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_6;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
+    (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
 }
 
 // std::string intialize_model_runtime(
@@ -431,20 +442,24 @@ std::string intialize_model_runtime(
 
     for (auto const& pair : runtimes) {
         const std::string& model = pair.first;
-        runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
-        runtimes[model].output_names = StringListToVector(runtimes[model].snpe->getOutputTensorNames());
+        #ifdef DEBUG
+            std::cout << "iterating through model: " << model << "\n";
+        #endif
         runtimes[model].applicationInputBuffers = std::unordered_map<std::string, std::vector<uint8_t>*>();
         runtimes[model].applicationOutputBuffers = std::unordered_map<std::string, std::vector<uint8_t>*>();
         runtimes[model].inputMap = zdl::DlSystem::UserBufferMap();
         runtimes[model].outputMap = zdl::DlSystem::UserBufferMap();
         // runtime_modes[str];
         runtimes[model].runtime = checkRuntime(runtime_modes.at(model));
+        std::cout << "checkedRunteim\n";
         runtimes[model].runtimeList.add(runtimes[model].runtime);
         std::cout << "platform config options: " << runtimes[model].platformConfig.getPlatformOptions() << "\n";
         // runtimes[str].platformConfig.
 
         /* old way, chagen later back to new way */
         // runtimes[str].container = loadContainerFromFile(runtimes[str].model);
+
+        
 
 
         std::cout << "loading file: " << runtimes[model].dlc_path << "\n";
@@ -489,15 +504,15 @@ std::string intialize_model_runtime(
         // runtimes[str].snpe = setBuilderOptions(runtimes[str].container, runtimes[str].runtimeList, true, runtimes[str].platformConfig);
 
         // using modified one from example (remove later)
-        // bool useUserSuppliedBuffers = true;
-        // bool useCaching = false;
-        // bool cpuFixedPointMode = false;
-        // runtimes[str].snpe = setBuilderOptions_ex(runtimes[str].container,
-        //                                         runtimes[str].runtime,
-        //                                         runtimes[str].runtimeList,
-        //                                         useUserSuppliedBuffers,
-        //                                         runtimes[str].platformConfig,
-        //                                         useCaching, cpuFixedPointMode);
+        bool useUserSuppliedBuffers = true;
+        bool useCaching = false;
+        bool cpuFixedPointMode = false;
+        runtimes[model].snpe = setBuilderOptions_ex(runtimes[model].container,
+                                                runtimes[model].runtime,
+                                                runtimes[model].runtimeList,
+                                                useUserSuppliedBuffers,
+                                                runtimes[model].platformConfig,
+                                                useCaching, cpuFixedPointMode);
         
         
 
@@ -505,15 +520,21 @@ std::string intialize_model_runtime(
     //    runtimes[str].inputMap = zdl::DlSystem::UserBufferMap();
     //     runtimes[str].outputMap = zdl::DlSystem::UserBufferMap();
 
+        runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
+        std::cout << "finished with StringListToVector\n";
+        runtimes[model].output_names = StringListToVector(runtimes[model].snpe->getOutputTensorNames());
+        std::cout << "finished with StringListToVector\n";
+
         #ifdef DEBUG
             auto end_2 = std::chrono::high_resolution_clock::now();
             auto duration_2 = std::chrono::duration_cast<std::chrono::milliseconds>(end_2 - start_2).count();
-            std::cout << "time to build model " << model << ": " << duration_2 << "ms\n";
+            std::cout << "time to build model " << model << ": " << duration_2 << "ms\n\n";
         #endif
     }
-    return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].container.get())) + "\n" + 
-            std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].snpe.get()));
-    }
+    return "done";
+    // return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].container.get())) + "\n" + 
+    //         std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].snpe.get()));
+}
 
 // currently only built for a single model, see test.cpp for other code for mulitple models
 // void allocate_model_input_buffers(
@@ -633,12 +654,21 @@ void create_user_buffers(
 ) {
     for (auto& pair : runtimes) {
         const std::string& model_name = pair.first;
+        #ifdef DEBUG
+            std::cout << "\nMODELNAME: " << model_name << "\n";
+        #endif
         // for (const auto& name_pair : model_buffer_sizes.at(model_name)) {
         for (const auto& input_name : runtimes[model_name].input_names) {
+            #ifdef DEBUG
+                std::cout << "\n";
+            #endif
             createUserBuffer(runtimes[model_name].inputMap, runtimes[model_name].applicationInputBuffers,
                 runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
         }
         for (const std::string& output_name : runtimes[model_name].output_names) {
+            #ifdef DEBUG
+                std::cout << "\n";
+            #endif
             createUserBuffer(runtimes[model_name].outputMap, runtimes[model_name].applicationOutputBuffers,
                 runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
         }
@@ -651,16 +681,38 @@ void reshapeModels(
     const std::unordered_map<std::string, std::vector<size_t>>& new_map,
     size_t datasize
 ) {
-    models[model_name].snpe = setBuilderOptions(models[model_name].container, models[model_name].runtime, true, new_map);
-    // for (const auto& models[model_name].)
+
+    #ifdef DEBUG
+        std::cout << "\t\treshapeModels() MODELNAME: " << model_name << "\n";
+        std::cout << "\t\tmodels[model_name].snpe: "  
+            << models[model_name].snpe.get() << "\n";
+    #endif
+    bool useUserSuppliedBuffers = true;
+    bool useCaching = false;
+    bool cpuFixedPointMode = false;
+    models[model_name].snpe = setBuilderOptions_reshape(
+        models[model_name].container,
+        models[model_name].runtime,
+        models[model_name].runtimeList,
+        useUserSuppliedBuffers,
+        useCaching, 
+        cpuFixedPointMode,
+        new_map);
+
     int i = 0;
     for (const auto& input_name : models[model_name].input_names) {
+        #ifdef DEBUG
+            std::cout << "input_name: " << input_name << "\n";
+        #endif
         modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
             models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
         i++;
     }
     i = 0;
     for (const std::string& output_name : models[model_name].output_names) {
+        #ifdef DEBUG
+            std::cout << "output_name: " << output_name << "\n";
+        #endif
         modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
             models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
     }
@@ -1031,9 +1083,9 @@ void printV(const std::string& str, const std::vector<T>& vec) {
     std::cout << "]\n";
 }
 
-
+template <typename T>
 void printT(
-    const std::string& str, const std::vector<uint32_t>& dims, const datatype* tensor, 
+    const std::string& str, const std::vector<uint32_t>& dims, const T* tensor, 
     bool precise, size_t max_elem
     ) {
     // print dims

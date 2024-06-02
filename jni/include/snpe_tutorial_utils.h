@@ -40,6 +40,8 @@
 
 #include "SNPE/SNPEBuilder.hpp"
 
+#define DEBUG
+
 
 zdl::DlSystem::Runtime_t checkRuntime(const zdl::DlSystem::Runtime_t runtime)
 {
@@ -205,10 +207,49 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex(std::unique_ptr<zdl::DlCon
     snpe = snpeBuilder.setOutputLayers({})
        .setRuntimeProcessorOrder(runtimeList)
        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
-       .setPlatformConfig(platformConfig)
-       .setInitCacheMode(useCaching)
-       .setCpuFixedPointMode(cpuFixedPointMode)
+    //    .setPlatformConfig(platformConfig)
+    //    .setInitCacheMode(useCaching)
+    //    .setCpuFixedPointMode(cpuFixedPointMode)
        .build();
+    return snpe;
+}
+
+std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
+    std::unique_ptr<zdl::DlContainer::IDlContainer> & container,
+    zdl::DlSystem::Runtime_t runtime,
+    zdl::DlSystem::RuntimeList runtimeList,
+    bool useUserSuppliedBuffers,
+    // zdl::DlSystem::PlatformConfig platformConfig,
+    bool useCaching, bool cpuFixedPointMode,
+    const std::unordered_map<std::string, std::vector<size_t>> &dims_dict)
+{
+    std::unique_ptr<zdl::SNPE::SNPE> snpe;
+    zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+
+    if(runtimeList.empty())
+    {
+        runtimeList.add(runtime);
+    }
+
+    for (const auto& pair : dims_dict) {
+        zdl::DlSystem::TensorShape shape(pair.second);
+        zdl::DlSystem::TensorShapeMap inputShapeMap;
+        inputShapeMap.add(pair.first.c_str(), shape);
+        snpeBuilder.setInputDimensions(inputShapeMap);
+    }
+
+    snpe = snpeBuilder.setOutputLayers({})
+       .setRuntimeProcessorOrder(runtimeList)
+       .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
+    //    .setPlatformConfig(platformConfig)
+    //    .setInitCacheMode(useCaching)
+    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .build();
+
+    #ifdef DEBUG
+        printf("snpe after: %p\n", snpe.get());
+    #endif
+
     return snpe;
 }
 
@@ -544,6 +585,9 @@ void executeNetwork(
 }
 
 std::vector<std::string> StringListToVector(zdl::DlSystem::StringList str_list) {
+    #ifdef DEBUG
+        std::cout << "calling StringListToVector()\n";
+    #endif
     std::vector<std::string> vec;
     for (int i = 0; i < str_list.size(); i++) {
         vec.push_back(str_list.at(i));

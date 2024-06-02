@@ -24,14 +24,14 @@
 #define ATTN_WEIGHTS_SIZE (MAX_SEQ_LEN*MAX_SEQ_LEN*32)
 
 #define LARGE_BUFFER_SIZE ATTN_WEIGHTS_SIZE
-#define DATASIZE 2
+#define DATASIZE 1
 
 #define DECODER_WEIGHT_SIZE 78671360
 #define LM_WEIGHTS_SIZE 131128320
 
 #define VOCAB_SIZE 51200
 
-#define DECODERS 4
+#define DECODERS 3
 
 
 #define HIDDEN_STATES_SIZE  (4+((HIDDEN_SIZE*MAX_SEQ_LEN)/2))
@@ -42,6 +42,6 @@
 #define TOTAL_LM_WEIGHT_SIZE (4*65564160)
 #define SIN_COS_TOTAL_SIZE (4*32768)
 
-typedef uint16_t datatype;
+// typedef uint16_t datatype;
 
 #endif
