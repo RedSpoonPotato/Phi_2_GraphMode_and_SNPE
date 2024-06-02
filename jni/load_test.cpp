@@ -43,19 +43,23 @@ int main(int argc, char** argv) {
     }
 
     // remove this if u add cpu and/or gpu support
-    assert(runtime_type == zdl::DlSystem::Runtime_t::DSP);
+    // assert(runtime_type == zdl::DlSystem::Runtime_t::DSP);
 
     // setting names
     std::set<std::string> model_names;
     for (int i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        model_names.insert("P1_reshaped_" + i_str);
-        model_names.insert("P4_reshaped_" + i_str);
+        model_names.insert("P1_1_reshaped_layer_" + i_str);
+        model_names.insert("P1_2_reshaped_layer_" + i_str);
+        model_names.insert("P4_1_reshaped_layer_" + i_str);
     }
+    model_names.insert("gelu"); // might fail to reshape, if so, just implement manually in executable
     model_names.insert("P2_1_first_buffered");
-    model_names.insert("P3_first_buffered");
     model_names.insert("P2_not_first_reshaped");
-    model_names.insert("P3_not_first_reshaped");
+    model_names.insert("P3_first_buffered");
+    // model_names.insert("P3_not_first_reshaped"); // this had problems so using buffered version instead to avoid reshaping
+    model_names.insert("P3_not_first_buffered");
+    model_names.insert("P4_2_reshaped");
 
     // setting runtime
     for (const std::string& model_name : model_names) {
@@ -64,10 +68,26 @@ int main(int argc, char** argv) {
 
     // setting dlc paths
     std::set<std::pair<std::string, std::string>> ModelNameAndPaths;
-    std::string dlcDir = "./fp16_test/model_split/q_dlc/q_model_";
+    // std::string dlcDir = "./fp16_test/model_split/q_dlc/q_model_"; // restore this
+    std::string dlcDir = "./fp16_test/model_split/dlc/model_"; // remove this
+    // add this forr loop back in later
     for (const std::string& model_name : model_names) {
-        ModelNameAndPaths.insert({model_name, dlcDir + model_name});
+        ModelNameAndPaths.insert({model_name, dlcDir + model_name + ".dlc"});
     }
+
+    // remove this later
+    // for (const std::string& model_name : model_names) {
+    //     if (model_name == "P3_not_first_reshaped") {
+    //         ModelNameAndPaths.insert({model_name, dlcDir + "P3_not_first_reshaped_test.dlc"});
+    //     }
+    //     else if (model_name == "P1_reshaped_layer_0") {
+    //         ModelNameAndPaths.insert({model_name, dlcDir + "P1_reshaped_test.dlc"});
+    //     }
+    //     else {
+    //         ModelNameAndPaths.insert({model_name, dlcDir + model_name + ".dlc"});
+    //     }
+    // }
+
 
     // setting sin, cos, embedding paths
     std::map<std::string, std::string> otherPaths;
@@ -76,7 +96,7 @@ int main(int argc, char** argv) {
     otherPaths["embedding"] = "./fp16_test/model_split/data/embedding.bin";
 
     // other params
-    uint32_t max_iterations = 100;  // CHANGE THIS TO WHATEVER IT SHOULD BE
+    uint32_t max_iterations = 2;  // CHANGE THIS TO WHATEVER IT SHOULD BE
     int debugReturnCode = 20;
     uint32_t end_token_id = 1; // CHANGE THIS TO WHATEVER IT SHOULD BE
     bool use_end_token_id = false; // CHANGE THIS TO WHATEVER IT SHOULD BE
