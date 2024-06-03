@@ -1,0 +1,1 @@
+the purpose of this section is to shapes at each step in the my_phi_gm.py model
