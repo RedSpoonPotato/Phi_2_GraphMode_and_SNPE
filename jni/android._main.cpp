@@ -122,8 +122,8 @@ std::string modelLaunch(
     auto query_pass_buff_dims = std::vector<size_t>();
     auto key_rot_buff_dims   = std::vector<size_t>();
     auto key_pass_buff_dims  = std::vector<size_t>();
-    auto key_cache_shape     = std::vector<size_t>();
-    auto value_cache_shape   = std::vector<size_t>();
+    auto key_cache_shape     = std::vector<std::vector<size_t>>(DECODERS);
+    auto value_cache_shape   = std::vector<std::vector<size_t>>(DECODERS);
 
     // not for DynamicTruncation()
     auto residual_shape         = std::vector<size_t>(); // buff_1
@@ -208,11 +208,11 @@ std::string modelLaunch(
     std::vector<uint32_t> token_seq = tot_token_seq; // will be size 11 on first run, 1 on runs after
 
     uint32_t next_token;
+    
+    size_t tot_seq_len  = tot_token_seq.size();
+    size_t seq_len      = token_seq.size();
 
     for (uint32_t iteration_num = 0; iteration_num < max_iterations; iteration_num++) {
-
-        const size_t tot_seq_len  = tot_token_seq.size();
-        const size_t seq_len      = token_seq.size();
         
         #ifdef DEBUG
             printV("token_seq", token_seq);
@@ -290,8 +290,8 @@ std::string modelLaunch(
                 cos_cached_shape, // set
                 sin_shape, // wil be set
                 cos_shape, // will be set
-                key_cache_shape, // intially it should not be set
-                value_cache_shape, // intially it should not be set
+                key_cache_shape[i], // intially it should not be set
+                value_cache_shape[i], // intially it should not be set
                 query_rot_buff_dims, // will be set
                 query_pass_buff_dims, // will be set
                 key_rot_buff_dims, // will be set
@@ -346,6 +346,9 @@ std::string modelLaunch(
         tot_token_seq.push_back(next_token);
         token_seq = std::vector<uint32_t> {next_token};
 
+        tot_seq_len  = tot_token_seq.size();
+        seq_len      = token_seq.size();
+
         if (use_end_token_id && next_token == end_token_id) {
             break; 
         }
@@ -355,47 +358,9 @@ std::string modelLaunch(
 
         std::cout << "\t\t\tTOT_SEQ_LEN: " << tot_seq_len << "\n";
 
-        reshapeModels(*models, "gelu", // this might fail to reshape, in that case, just implement manually (no dlc)
-            {
-                {"input:0", {1, INTERMEDIATE_SIZE}}
-            }, datasize);
+        reshapeStuff(models, iteration_num, datasize, tot_seq_len);
 
-        reshapeModels(*models, "P2_not_first_reshaped", // this might fail to reshape, in that case, just implement manually (no dlc)
-            {
-                {"query_states_0:0", {1, 32, 80}},
-                {"key_states_0:0", {tot_seq_len, 32, 80}},
-                {"attention_mask:0", {tot_seq_len}},
-            }, datasize);
-
-        reshapeModels(*models, "P4_2_reshaped", // this might fail to reshape, in that case, just implement manually (no dlc)
-            {
-                {"p4_1_out:0", {1, HIDDEN_SIZE}},
-                {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
-                {"residual:0", {1, HIDDEN_SIZE}},
-            }, datasize);
-
-        // QUESTION: DOES THE CODE BELOW ONLY NEED TO RUN ONCE?
-        for (size_t i = 0; i < DECODERS; i++) {
-            std::string i_str = std::to_string(i);
-
-            reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
-                {
-                    {"hidden_states:0", {1, HIDDEN_SIZE}}
-                }, datasize);
-
-            reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
-                {
-                    {"gelu_fc1_out:0", {1, INTERMEDIATE_SIZE}}
-                }, datasize);
-
-            reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
-                {
-                    {"p3_out:0", {1, HIDDEN_SIZE}}
-                }, datasize);
-
-        }
-        position_ids.resize(1);
-        position_ids[0] = tot_seq_len - 1;        
+        position_ids = {(int)tot_seq_len - 1};
     }
 
     #ifdef DEBUG

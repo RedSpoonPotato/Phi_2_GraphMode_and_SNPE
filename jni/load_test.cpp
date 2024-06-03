@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
         ModelNameAndPaths, // abs paths
         otherPaths, // abs path of sin, cos, embeddingFIle
         max_iterations, 
-        Free_Status::run,
+        Free_Status::run_and_free, // modded
         debugReturnCode,
         end_token_id,
         use_end_token_id);
@@ -120,18 +120,18 @@ int main(int argc, char** argv) {
     std::cout << "final result: " << output_str << "\n";
 
     // example of running with the previous result as input, and freeing everything ()
-    output_str = modelLaunch(
-        output_str,
-        runtime_modes,
-        datasize,
-        isTFBuffer,
-        ModelNameAndPaths, // abs paths
-        otherPaths, // abs path of sin, cos, embeddingFIle
-        max_iterations, 
-        Free_Status::run_and_free,
-        debugReturnCode,
-        end_token_id,
-        use_end_token_id);
+    // output_str = modelLaunch(
+    //     output_str,
+    //     runtime_modes,
+    //     datasize,
+    //     isTFBuffer,
+    //     ModelNameAndPaths, // abs paths
+    //     otherPaths, // abs path of sin, cos, embeddingFIle
+    //     max_iterations, 
+    //     Free_Status::run_and_free,
+    //     debugReturnCode,
+    //     end_token_id,
+    //     use_end_token_id);
 
     std::cout << "final result: " << output_str << "\n";
 
