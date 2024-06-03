@@ -65,8 +65,15 @@ std::string modelLaunch(
     #endif
 
     /* memory buffers */
-    // const size_t max_seq_len = 2048;
-    // const size_t hidden_size = 2560;
+
+    // NOTE: Could optimize storing as fp16 instead, but would not have that much memory
+    // layernorm buffers (stored as fp32)
+    static auto layernorm_weights   = std::vector<std::vector<float>>(DECODERS);
+    static auto layernorm_biases    = std::vector<std::vector<float>>(DECODERS);
+    for (int i = 0; i < DECODERS; i++) { 
+        layernorm_weights[i].resize(HIDDEN_SIZE);
+        layernorm_biases[i].resize(HIDDEN_SIZE);
+    }
 
     const int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
 
@@ -117,6 +124,14 @@ std::string modelLaunch(
     auto key_pass_buff_dims  = std::vector<size_t>();
     auto key_cache_shape     = std::vector<size_t>();
     auto value_cache_shape   = std::vector<size_t>();
+
+    // not for DynamicTruncation()
+    auto residual_shape         = std::vector<size_t>(); // buff_1
+    auto attn_weights_shape     = std::vector<size_t>(); // buff_8
+    auto attn_output_shape      = std::vector<size_t>(); // buff_3
+    auto decoder_output_shape   = std::vector<size_t>(); // buff_3
+
+    
 
     std::vector<int> position_ids;
 
@@ -182,27 +197,25 @@ std::string modelLaunch(
     /* tokenizer encode */
     // "What is your favorite color?. Mine is red."
  
-    std::vector<uint32_t> token_collection;
-    tokenize_generate(input_txt, token_collection);
-    for (int i = 0; i < token_collection.size(); i++) { position_ids.push_back(i); }
+    std::vector<uint32_t> tot_token_seq;
+    tokenize_generate(input_txt, tot_token_seq);
+    for (int i = 0; i < tot_token_seq.size(); i++) { position_ids.push_back(i); }
 
     #ifdef DEBUG
         std::cout << "\t\t\t--CHECKPOINT H--\n";
     #endif
 
-    std::vector<uint32_t> tokens = token_collection;
+    std::vector<uint32_t> token_seq = tot_token_seq; // will be size 11 on first run, 1 on runs after
 
-    uint32_t tot_seq_len = tokens.size();
     uint32_t next_token;
 
-    query_shape = {1, 32, tot_seq_len, 80};
-    key_shape   = {1, 32, tot_seq_len, 80};
-    value_shape = {1, 32, tot_seq_len, 80};
-
     for (uint32_t iteration_num = 0; iteration_num < max_iterations; iteration_num++) {
+
+        const size_t tot_seq_len  = tot_token_seq.size();
+        const size_t seq_len      = token_seq.size();
         
         #ifdef DEBUG
-            printV("tokens", tokens);
+            printV("token_seq", token_seq);
         #endif
 
         /* embedding layer */
@@ -212,6 +225,8 @@ std::string modelLaunch(
         //     HIDDEN_SIZE, 
         //     (float*)(*(*models)["P1_reshaped_0"].applicationInputBuffers["residual:0"]).data()); 
 
+        // set decoder_output as input to layernorm
+        residual_shape = {1, seq_len, HIDDEN_SIZE};
 
         /* generate proper mask and position_ids */
         // prepareInputs(
@@ -228,54 +243,70 @@ std::string modelLaunch(
             - other stuff
         */
         for (int i = 0; i < DECODERS; i++) {
-            // layernorm_Nd_32f(
-            //     const float* tensor, const float* weight, const float* bias, float* out,
-            //     const std::vector<uint32_t>& tensor_dims, const int weight_len,
-            //     const float eps);
             std::string i_str = std::to_string(i);
+
+            // use decoder_output as a inut to layernorm
+            layernorm_Nd_32f(
+                (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), // buff_1
+                layernorm_weights[i].data(), 
+                layernorm_biases[i].data(), 
+                (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(), // buff_2
+                residual_shape, 
+                HIDDEN_SIZE,
+                1e-5);
             // execute(*models, "P1_1_reshaped_layer_" + i_str);
             // execute(*models, "gelu");
             // execute(*models, "P1_2_reshaped_layer_" + i_str);
+            
+            query_shape = {1, 32, seq_len, 80};
+            key_shape   = {1, 32, seq_len, 80};
+            value_shape = {1, 32, seq_len, 80};
 
             /* implement processing */
             // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
             sin_cached_shape = {MAX_SEQ_LEN, 32};
             cos_cached_shape = {MAX_SEQ_LEN, 32};
 
-            // DynamicTruncationAndConcatentation(
-            //     buff_3.data(),
-            //     buff_4.data(),
-            //     buff_5.data(),
-            //     sin_cached.data(), // (11, 32) - (12, 32)
-            //     cos_cached.data(),
-            //     sin_buff.data(),
-            //     cos_buff.data(),
-            //     k_cache[i].data(), // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
-            //     v_cache[i].data(), // same as key_cache
-            //     query_rot_buff.data(),
-            //     query_pass_buff.data(),
-            //     key_rot_buff.data(),
-            //     key_pass_buff.data(),
-            //     query_shape, // set
-            //     key_shape, // set
-            //     value_shape, // set
-            //     sin_cached_shape, // set
-            //     cos_cached_shape, // set
-            //     sin_shape, // wil be set
-            //     cos_shape, // will be set
-            //     key_cache_shape, // intially it should not be set
-            //     value_cache_shape, // intially it should not be set
-            //     query_rot_buff_dims, // will be set
-            //     query_pass_buff_dims, // will be set
-            //     key_rot_buff_dims, // will be set
-            //     key_pass_buff_dims, // will be set
-            //     rotary_emb_dim, // set
-            //     position_ids); // set
+            std::cout << "\t\t\tCalling DynamicTruncationAndConcatentation() #" << i_str << "\n";
+
+            DynamicTruncationAndConcatentation(
+                buff_3.data(),
+                buff_4.data(),
+                buff_5.data(),
+                sin_cached.data(), // (11, 32) - (12, 32)
+                cos_cached.data(),
+                sin_buff.data(),
+                cos_buff.data(),
+                k_cache[i].data(), // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
+                v_cache[i].data(), // same as key_cache
+                query_rot_buff.data(),
+                query_pass_buff.data(),
+                key_rot_buff.data(),
+                key_pass_buff.data(),
+                query_shape, // set
+                key_shape, // set
+                value_shape, // set
+                sin_cached_shape, // set
+                cos_cached_shape, // set
+                sin_shape, // wil be set
+                cos_shape, // will be set
+                key_cache_shape, // intially it should not be set
+                value_cache_shape, // intially it should not be set
+                query_rot_buff_dims, // will be set
+                query_pass_buff_dims, // will be set
+                key_rot_buff_dims, // will be set
+                key_pass_buff_dims, // will be set
+                rotary_emb_dim, // set
+                position_ids); // set
+
+            std::cout << "\t\t\tFinished DynamicTruncationAndConcatentation() #" << i_str << "\n";
 
             if (iteration_num == 0) {
                 // execute(*models, "P2_1_first_buffered");
+                attn_weights_shape = {1, 32, seq_len, seq_len};
                 /* implement softmax*/ // P2_2
                 // execute(*models, "P3_first_buffered");
+                attn_output_shape = {1, seq_len, HIDDEN_SIZE};
             }
             else {
                 // execute(*models, "P2_not_first_reshaped");
@@ -283,32 +314,26 @@ std::string modelLaunch(
             }
             // execute(*models, "P4_1_reshaped_layer_" + i_str);
             // execute(*models, "P4_2_reshaped");
+            decoder_output_shape = {1, seq_len, HIDDEN_SIZE};
+
+            /* copy data from decoder_out to residual buffer if we are not on the last decoder layer*/
+            if (i != DECODERS-1) { 
+                residual_shape = decoder_output_shape;
+                assert(float_size == 4); // if this is false, think about what dimensions represent before changing
+                copyTensor(
+                    (float*)(*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"]->data(), 
+                    (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), 
+                    decoder_output_shape
+                );
+            }
         }
-
-
-        // remove later
-        // std::cout << "rebuilding and executing a 2nd time---------\n";
-        // std::unordered_map<std::string, std::vector<size_t>> new_map;
-        // new_map["vector:0"] = {3, 1, 1, int(1e3)};
-        // (*models)[0].snpe = setBuilderOptions((*models)[0].container, (*models)[0].runtime, true, new_map);
-        // std::string input_name = std::string((*((*models)[0].snpe->getInputTensorNames())).at(0));
-        // std::cout << "input_name: " << input_name << "\n";
-        // modifyUserBuffer((*models)[0].inputMap, (*models)[0].applicationInputBuffers,
-        //         (*models)[0].input_user_buff_vec, (*models)[0].snpe, input_name.c_str(), datasize, 0);
-        // std::string output_name = std::string((*((*models)[0].snpe->getOutputTensorNames())).at(0));
-        // std::cout << "output_name: " << output_name << "\n";
-        // modifyUserBuffer((*models)[0].outputMap, (*models)[0].applicationOutputBuffers,
-        //     (*models)[0].output_user_buff_vec, (*models)[0].snpe, output_name.c_str(), datasize, 0);
-        // std::cout << "executing\n";
-        // (*models)[0].snpe->execute((*models)[0].inputMap, (*models)[0].outputMap);
-        // std::cout << "finished-----------------------------\n";
-        // end of remove
-
 
         /* write kv cache from out to in */
         #ifdef DEBUG
             std::cout << "calling copyKV\n";
         #endif
+
+        // need to add rest of model (outside of decoder layers)
 
         /* grab next token */
         // the line below is old, FIX IT
@@ -318,10 +343,8 @@ std::string modelLaunch(
         #endif
 
         /* insert token */
-        token_collection.push_back(next_token);
-        tokens = std::vector<uint32_t> {next_token};
-
-        tot_seq_len++;
+        tot_token_seq.push_back(next_token);
+        token_seq = std::vector<uint32_t> {next_token};
 
         if (use_end_token_id && next_token == end_token_id) {
             break; 
@@ -330,59 +353,17 @@ std::string modelLaunch(
         /* reshape */
         // reshape stuff for the next run
 
-        // remove later
-        // for (const auto& input_name : models->at("P2_not_first_reshaped").input_names) {
-        //     std::cout << "inputname: " << input_name << ", ";
-        // } std::cout << "\n";
-
-        // reshapeModels(*models, "P2_not_first_reshaped", 
-        //     {
-        //         {"query_states_0:0", {1, 32, 80}},
-        //         {"key_states_0:0", {tot_seq_len, 32, 80}},
-        //         {"attention_mask:0", {tot_seq_len}}
-        //     }, datasize);
-
-        // remove later
-        // for (const auto& input_name : models->at("P3_not_first_reshaped").input_names) {
-        //     std::cout << "inputname: " << input_name << ", ";
-        // } std::cout << "\n";
-
-        // this is the GOOD ONE
-        // reshapeModels(*models, "P3_not_first_reshaped",
-        //     {
-        //         {"attn_weights_0:0", {tot_seq_len, 32, 1}}, // this is producing problems
-        //         {"value_states_0:0", {tot_seq_len, 32, 80}}
-        //     }, datasize);
-
         std::cout << "\t\t\tTOT_SEQ_LEN: " << tot_seq_len << "\n";
-        // remove LATER
-    //    reshapeModels(*models, "P3_not_first_reshaped",
-    //         {
-    //             {"attn_weights_0:0", {8, 32, 2}}, // this is producing problems
-    //             {"value_states_0:0", {8, 32, 80}}
-    //         }, datasize);
-
-
-        // for (const auto& input_name : models->at("P1_reshaped_layer_0").input_names) {
-        //     std::cout << "inputname: " << input_name << ", ";
-        // } std::cout << "\n";
-
-        // size_t SMALL_SIZE = 17;
-        // reshapeModels(*models, "P1_reshaped_layer_0",
-        // {
-        //     {"residual:0", {6, SMALL_SIZE}}
-        // }, datasize);
-
 
         reshapeModels(*models, "gelu", // this might fail to reshape, in that case, just implement manually (no dlc)
             {
-                {"input:0", {1, HIDDEN_SIZE}}
+                {"input:0", {1, INTERMEDIATE_SIZE}}
             }, datasize);
 
         reshapeModels(*models, "P2_not_first_reshaped", // this might fail to reshape, in that case, just implement manually (no dlc)
             {
-                {"query_states:0", {1, 32, 80}},
-                {"key_states:0", {tot_seq_len, 32, 80}},
+                {"query_states_0:0", {1, 32, 80}},
+                {"key_states_0:0", {tot_seq_len, 32, 80}},
                 {"attention_mask:0", {tot_seq_len}},
             }, datasize);
 
@@ -404,7 +385,7 @@ std::string modelLaunch(
 
             reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
                 {
-                    {"gelu_fc1_out:0", {1, HIDDEN_SIZE}}
+                    {"gelu_fc1_out:0", {1, INTERMEDIATE_SIZE}}
                 }, datasize);
 
             reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
@@ -414,10 +395,7 @@ std::string modelLaunch(
 
         }
         position_ids.resize(1);
-        position_ids[0] = tot_seq_len - 1;
-        query_shape = {1, 32, 1, 80};
-        key_shape   = {1, 32, 1, 80};
-        value_shape = {1, 32, 1, 80};
+        position_ids[0] = tot_seq_len - 1;        
     }
 
     #ifdef DEBUG
@@ -426,7 +404,7 @@ std::string modelLaunch(
     
     /* tokenizer decode */
     std::string output_txt;
-    tokenize_decode(token_collection, output_txt);
+    tokenize_decode(tot_token_seq, output_txt);
     
     #ifdef DEBUG
         std::cout << "\t\t\t--CHECKPOINT J--\n";
