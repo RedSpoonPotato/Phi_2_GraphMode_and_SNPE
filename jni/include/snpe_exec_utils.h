@@ -718,6 +718,53 @@ void reshapeModels(
     }
 }
 
+void reshapeStuff(
+    std::map<std::string, ModelRuntime> *models,
+    const uint32_t iteration_num,
+    const size_t datasize,
+    const size_t tot_seq_len
+) {
+    if (iteration_num == 0) {
+        reshapeModels(*models, "gelu",
+            {
+                {"input:0", {1, INTERMEDIATE_SIZE}}
+            }, datasize);
+
+        reshapeModels(*models, "P4_2_reshaped",
+            {
+                {"p4_1_out:0", {1, HIDDEN_SIZE}},
+                {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
+                {"residual:0", {1, HIDDEN_SIZE}},
+            }, datasize);
+
+        for (size_t i = 0; i < DECODERS; i++) {
+            std::string i_str = std::to_string(i);
+
+            reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
+                {
+                    {"hidden_states:0", {1, HIDDEN_SIZE}}
+                }, datasize);
+
+            reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
+                {
+                    {"gelu_fc1_out:0", {1, INTERMEDIATE_SIZE}}
+                }, datasize);
+
+            reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
+                {
+                    {"p3_out:0", {1, HIDDEN_SIZE}}
+                }, datasize);
+        }
+    }
+
+    reshapeModels(*models, "P2_not_first_reshaped",
+        {
+            {"query_states_0:0", {1, 32, 80}},
+            {"key_states_0:0", {tot_seq_len, 32, 80}},
+            {"attention_mask:0", {tot_seq_len}},
+        }, datasize);
+}
+
 void freeModels(std::vector<ModelRuntime>* models) {
     for (int i = 0; i < (*models).size(); i++) {
         zdl::SNPE::SNPEFactory::terminateLogging();
