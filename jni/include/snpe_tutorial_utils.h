@@ -223,9 +223,17 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
     bool useCaching, bool cpuFixedPointMode,
     const std::unordered_map<std::string, std::vector<size_t>> &dims_dict)
 {
+    #ifdef DEBUG
+        std::cout << "checkpoint 1\n";
+    #endif
+
     std::unique_ptr<zdl::SNPE::SNPE> snpe;
     zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
-
+    
+    #ifdef DEBUG
+        std::cout << "checkpoint 2\n";
+    #endif
+    
     if(runtimeList.empty())
     {
         runtimeList.add(runtime);
@@ -238,6 +246,10 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
         snpeBuilder.setInputDimensions(inputShapeMap);
     }
 
+    #ifdef DEBUG
+        std::cout << "checkpoint 3\n";
+    #endif
+
     snpe = snpeBuilder.setOutputLayers({})
        .setRuntimeProcessorOrder(runtimeList)
        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
@@ -245,6 +257,10 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
     //    .setInitCacheMode(useCaching)
     //    .setCpuFixedPointMode(cpuFixedPointMode)
        .build();
+
+    #ifdef DEBUG
+        std::cout << "checkpoint 4\n";
+    #endif
 
     #ifdef DEBUG
         printf("snpe after: %p\n", snpe.get());

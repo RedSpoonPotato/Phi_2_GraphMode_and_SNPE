@@ -20,21 +20,21 @@ void copyTensor(const T* ten1, T* out, const std::vector<size_t>& dims) {
 
 void layernorm_1d_32f(
     const float* vec, const float* weight, const float* bias, float* out,
-    const int vec_len, const int weight_len, const float eps
+    const size_t vec_len, const size_t weight_len, const float eps
 ) {
     // mean
     float mean = 0;
-    for (int i = 0; i < vec_len; i++) { mean += vec[i]; }
+    for (size_t i = 0; i < vec_len; i++) { mean += vec[i]; }
     mean = mean / vec_len;
     // variance
     float variance = 0;
-    for (int i = 0; i < vec_len; i++) { 
+    for (size_t i = 0; i < vec_len; i++) { 
         variance += pow(vec[i] - mean, 2); 
     }
     variance = variance / vec_len;
     float variance_plus_eps_sprt = sqrt(variance + eps);
     // output
-    for (int i = 0; i < vec_len; i++) { 
+    for (size_t i = 0; i < vec_len; i++) { 
         out[i] = (vec[i] - mean) / variance_plus_eps_sprt; 
         out[i] = (out[i] * weight[i]) + bias[i];
     }
@@ -42,7 +42,7 @@ void layernorm_1d_32f(
 
 void layernorm_Nd_32f(
     const float* tensor, const float* weight, const float* bias, float* out,
-    const std::vector<uint32_t>& tensor_dims, const int weight_len,
+    const std::vector<size_t>& tensor_dims, const int weight_len,
     const float eps
 ) {
     int num_vectors = 1;
@@ -486,6 +486,12 @@ void DynamicTruncationAndConcatentation(
 ) {
     bool firstRunForDecoder = false;
     if (key_cache_shape.size() == 0) { firstRunForDecoder = true; }
+
+    printV("query_states_shape", query_shape);
+    printV("key_states_shape", key_shape);
+    printV("value_states_shape", value_shape);
+    printV("key_cache_shape", key_cache_shape);
+    printV("value_cache_shape", value_cache_shape);
 
     // implement kv stuff
     size_t kv_seq_len = key_shape.end()[-2];
