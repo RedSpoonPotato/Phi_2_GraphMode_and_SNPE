@@ -22,8 +22,6 @@
 
 #define REGEX_TOOL boost
 
-// WORKING######################
-
 std::string UnicodeToUTF8(unsigned int codepoint)
 {
     std::string out;
@@ -115,9 +113,6 @@ std::unordered_map<uint32_t, std::string> bytes_to_unicode() {
     }
     return byte_encoder;
 }
-
-// NOT WORKING YET *************************
-
 
 // Function to split a string by a delimiter
 std::vector<std::string> split(const std::string &s, char delimiter) {
