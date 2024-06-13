@@ -18,6 +18,39 @@ void copyTensor(const T* ten1, T* out, const std::vector<size_t>& dims) {
     }
 }
 
+void mySoftmax(const float* tensor, float* out, const std::vector<size_t>& dims) {
+    int rank = dims.size();
+    float maxElt = std::numeric_limits<float>::lowest();
+    float expSum;
+    std::cout << "max Elt: " << maxElt << "\n";
+    // compute number of iterations
+    unsigned long long iterations = 1; // total_elements / dims[-1]
+    for (int i = 0; i < rank - 1; i++) {iterations *= dims[i];}
+    int inner_dim_size = dims.end()[-1];
+    // compute
+    for (auto i = 0; i < iterations; i++) {
+        maxElt = std::numeric_limits<float>::lowest();
+        // find max element
+        for (int j = 0; j < inner_dim_size; j++) {
+            // maxElt = std::max(maxElt, tensor[i*inner_dim_size + j]);
+            maxElt = (maxElt > tensor[i*inner_dim_size + j]) ? 
+                    maxElt : tensor[i*inner_dim_size + j];
+        }
+        // exponentiate
+        expSum = 0.0;
+        for (int j = 0; j < inner_dim_size; j++) {
+            const float ei = expf(tensor[i*inner_dim_size + j] - maxElt);
+            out[i*inner_dim_size + j] = ei;
+            expSum += ei;
+        }
+        // normalize
+        for (int j = 0; j < inner_dim_size; j++) {
+            out[i*inner_dim_size + j] /= expSum;
+        }
+    }
+}
+
+
 void layernorm_1d_32f(
     const float* vec, const float* weight, const float* bias, float* out,
     const size_t vec_len, const size_t weight_len, const float eps

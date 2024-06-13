@@ -114,6 +114,7 @@ std::unordered_map<uint32_t, std::string> bytes_to_unicode() {
     return byte_encoder;
 }
 
+
 // Function to split a string by a delimiter
 std::vector<std::string> split(const std::string &s, char delimiter) {
     std::vector<std::string> tokens;

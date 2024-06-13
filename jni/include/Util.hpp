@@ -30,6 +30,15 @@ template <typename Container> Container& split(Container& result, const typename
   return result;
 }
 
+struct quantParams {
+   unsigned char stepEquivalentTo0;
+   float quantizedStepSize;
+   quantParams(unsigned char stepEquivalentTo0, float quantizedStepSize) {
+      this->stepEquivalentTo0 = stepEquivalentTo0;
+      this->quantizedStepSize = quantizedStepSize;
+   }
+};
+
 size_t calcSizeFromDims(const zdl::DlSystem::Dimension *dims, size_t rank, size_t elementSize);
 
 std::vector<float> loadFloatDataFile(const std::string& inputFile);
@@ -46,8 +55,11 @@ bool SaveITensorBatched(const std::string& path, const zdl::DlSystem::ITensor* t
 bool SaveUserBufferBatched(const std::string& path, const std::vector<uint8_t>& buffer, size_t batchIndex=0, size_t batchChunk=0);
 bool EnsureDirectory(const std::string& dir);
 
+void TfNToFloat(float *out, uint8_t *in, const quantParams& params, size_t numElement, int bitWidth);
 void TfNToFloat(float *out, uint8_t *in, const unsigned char stepEquivalentTo0, const float quantizedStepSize, size_t numElement, int bitWidth);
-bool FloatToTfN(uint8_t* out, unsigned char& stepEquivalentTo0, float& quantizedStepSize, bool staticQuantization, float* in, size_t numElement, int bitWidth);
+
+bool FloatToTfN(uint8_t* out, const quantParams& params, bool staticQuantization, float* in, size_t numElement, int bitWidth);
+bool FloatToTfN(uint8_t* out, unsigned char stepEquivalentTo0, float quantizedStepSize, bool staticQuantization, float* in, size_t numElement, int bitWidth);
 
 void setResizableDim(size_t resizableDim);
 size_t getResizableDim();

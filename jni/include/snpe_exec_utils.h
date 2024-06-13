@@ -284,10 +284,12 @@ void loadAndQuantize(
 }
 
 
+
+
 void linkBuffers(
     std::map<std::string, ModelRuntime> *models,
     std::vector<uint8_t>& buff_1,
-    std::vector<uint8_t>& buff_2,
+    // std::vector<uint8_t>& buff_2,
     std::vector<uint8_t>& buff_3,
     std::vector<uint8_t>& buff_4,
     std::vector<uint8_t>& buff_5,
@@ -297,18 +299,18 @@ void linkBuffers(
 ) {
 
     // this may not be able to be reshaped
-    (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_2;
-    (*models)["gelu"].applicationOutputBuffers["gelu_out:0"] = &buff_6;
+    (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_8;
+    (*models)["gelu"].applicationOutputBuffers["gelu_out:0"] = &buff_8;
     
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_2; // new
+        (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
         (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
         (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
         (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
         (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
 
-        (*models)["P1_2_reshaped_layer_" + i_str].applicationInputBuffers["gelu_fc1_out:0"] = &buff_2;
+        (*models)["P1_2_reshaped_layer_" + i_str].applicationInputBuffers["gelu_fc1_out:0"] = &buff_8;
         (*models)["P1_2_reshaped_layer_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
     }
 
@@ -333,12 +335,12 @@ void linkBuffers(
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
         (*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"] = &buff_3;
-        (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_2;
+        (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_4;
     }
 
-    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_2;
-    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_6;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
     (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
     (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
 }
 
@@ -507,12 +509,13 @@ std::string intialize_model_runtime(
         bool useUserSuppliedBuffers = true;
         bool useCaching = false;
         bool cpuFixedPointMode = false;
-        runtimes[model].snpe = setBuilderOptions_ex(runtimes[model].container,
-                                                runtimes[model].runtime,
-                                                runtimes[model].runtimeList,
-                                                useUserSuppliedBuffers,
-                                                runtimes[model].platformConfig,
-                                                useCaching, cpuFixedPointMode);
+        runtimes[model].snpe = setBuilderOptions_ex(
+            runtimes[model].container,
+            runtimes[model].runtime,
+            runtimes[model].runtimeList,
+            useUserSuppliedBuffers,
+            runtimes[model].platformConfig,
+            useCaching, cpuFixedPointMode);
         
         
 
@@ -941,10 +944,23 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 //     // assert(i > 0); 
 // }
 
+
+void executeDebug(std::map<std::string, ModelRuntime>& models, const std::string& model_name, size_t N) {
+    std::cout << "\nEXECUTION STAGE <" << model_name << ">\n";
+    for (const std::string& input_name : models[model_name].input_names) {
+        printN(input_name, models[model_name].applicationInputBuffers[input_name]->data(), N);
+    }
+
+    models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
+
+    for (const std::string& output_name : models[model_name].output_names) {
+        printN(output_name, models[model_name].applicationOutputBuffers[output_name]->data(), N);
+    }
+}
+
 void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name) {
     models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
 }
-
 
 
 
@@ -1033,7 +1049,7 @@ void copyKV(T* in, T* out) {
 
 
 // generate mask and position_ids; also iteration_num should first be 0
-void prepareInputs(float* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num)
+void prepareInputs_old(float* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num)
 {
     if (iteration_num == 0) {
         // set position_ids shape
@@ -1076,6 +1092,27 @@ void prepareInputs(float* mask, int* position_ids, uint32_t seq_len, uint32_t it
         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = 1;
         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
+        // set mask
+        for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
+    }
+}
+
+// iteration_num should first be 0
+template <typename T>
+void prepareMask(T* mask, uint32_t seq_len, uint32_t iteration_num)
+{
+    if (iteration_num == 0) {
+        // set mask
+        T lowest = std::numeric_limits<T>::lowest();
+        for (uint32_t row = 0; row < seq_len; row++) {
+            for (uint32_t col = 0; col < seq_len; col++) {
+                // std::cout << "(row, col): (" << row << ", " << col << ")\n";
+                if (row >= col) { mask[row*seq_len + col] = 0; }
+                else            { mask[row*seq_len + col] = lowest; } 
+            }
+        }
+    }
+    else {
         // set mask
         for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
     }
@@ -1130,6 +1167,18 @@ void printV(const std::string& str, const std::vector<T>& vec) {
     std::cout << "]\n";
 }
 
+template <typename T>
+void printN(const std::string& str, const T* vec, const size_t N) {
+    std::cout << str;
+    std::cout << ": [";
+    for (size_t i = 0; i < N; i++) {
+        std::cout << vec[i];
+        std::cout << ", ";
+    }
+    std::cout << "]\n";
+}
+
+// does not really work with every datatype
 template <typename T>
 void printT(
     const std::string& str, const std::vector<uint32_t>& dims, const T* tensor, 
