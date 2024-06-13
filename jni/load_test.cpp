@@ -70,7 +70,6 @@ int main(int argc, char** argv) {
     std::set<std::pair<std::string, std::string>> ModelNameAndPaths;
     // std::string dlcDir = "./fp16_test/model_split/q_dlc/q_model_"; // restore this
     std::string dlcDir = "./fp16_test/model_split/dlc/model_"; // remove this
-    // add this forr loop back in later
     for (const std::string& model_name : model_names) {
         ModelNameAndPaths.insert({model_name, dlcDir + model_name + ".dlc"});
     }
@@ -91,9 +90,11 @@ int main(int argc, char** argv) {
 
     // setting sin, cos, embedding paths
     std::map<std::string, std::string> otherPaths;
-    otherPaths["sin"] = "./fp16_test/model_split/data/sin.bin";
-    otherPaths["cos"] = "./fp16_test/model_split/data/cos.bin";
-    otherPaths["embedding"] = "./fp16_test/model_split/data/embedding.bin";
+    otherPaths["sin"] = "./fp16_test/model_split/data/sin.bin"; // 32-bit
+    otherPaths["cos"] = "./fp16_test/model_split/data/cos.bin"; // 32-bit
+    otherPaths["embedding"] = "./fp16_test/model_split/data/embedding.bin"; // 16-bit
+    otherPaths["token_vocab"] = "./fp16_test/model_split/data/vocab.json";
+    otherPaths["token_merges"] = "./fp16_test/model_split/data/merges.txt";
 
     // other params
     uint32_t max_iterations = 2;  // CHANGE THIS TO WHATEVER IT SHOULD BE

@@ -23,6 +23,7 @@
 #include "DlSystem/ITensorFactory.hpp"
 #include "DlSystem/TensorShape.hpp"
 
+
 size_t resizable_dim;
 
 size_t calcSizeFromDims(const zdl::DlSystem::Dimension *dims, size_t rank, size_t elementSize )
@@ -180,9 +181,19 @@ void TfNToFloat(float *out,
    }
 }
 
+void TfNToFloat(
+   float *out,
+   uint8_t *in,
+   const quantParams& params,
+   size_t numElement,
+   int bitWidth
+) {
+   TfNToFloat(out, in, params.stepEquivalentTo0, params.quantizedStepSize, numElement, bitWidth);
+}
+
 bool FloatToTfN(uint8_t* out,
-                unsigned char& stepEquivalentTo0,
-                float& quantizedStepSize,
+                unsigned char stepEquivalentTo0,
+                float quantizedStepSize,
                 bool staticQuantization,
                 float* in,
                 size_t numElement,
@@ -270,6 +281,18 @@ bool FloatToTfN(uint8_t* out,
    return true;
 }
 
+bool FloatToTfN(
+   uint8_t* out,
+   const quantParams& params,
+   bool staticQuantization,
+   float* in,
+   size_t numElement,
+   int bitWidth
+) {
+   return FloatToTfN(out, params.stepEquivalentTo0, params.quantizedStepSize, staticQuantization, in, numElement, bitWidth);
+}
+
+// might be incorrect b/c FloatToTfN() was modified to use pass by value rather than by reference
 bool loadByteDataFileBatchedTfN(const std::string& inputFile, std::vector<uint8_t>& loadVector, size_t offset,
                                 unsigned char& stepEquivalentTo0, float& quantizedStepSize, bool staticQuantization, int bitWidth)
 {
