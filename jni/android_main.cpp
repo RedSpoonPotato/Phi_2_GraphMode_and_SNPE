@@ -20,8 +20,6 @@ This is built for running the phi-2 model with the htp
 
 #define LLM
 
-#define N_PRINT 5 // legnth of elements to print
-
 std::string modelLaunch(
     const std::string& input_txt,
     const std::map<std::string, zdl::DlSystem::Runtime_t>& runtime_modes,
@@ -208,7 +206,7 @@ std::string modelLaunch(
     std::vector<uint32_t> token_seq = tot_token_seq; // will be size 11 on first run, 1 on runs after
 
     uint32_t next_token;
-    
+
     size_t tot_seq_len  = tot_token_seq.size();
     size_t seq_len      = token_seq.size();
 
@@ -257,14 +255,10 @@ std::string modelLaunch(
         #endif
 
         /* call model */
-        /* Need ALOT MORE WORK 
-            - processing inbetween buffers?
-            - other stuff
-        */
         for (int i = 0; i < DECODERS; i++) {
             std::string i_str = std::to_string(i);
 
-            // use decoder_output as a inut to layernorm
+            // use decoder_output as a input to layernorm
             layernorm_Nd_32f(
                 (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), // buff_1
                 layernorm_weights[i].data(), 
@@ -317,61 +311,30 @@ std::string modelLaunch(
                 }
             }
 
-            #ifdef DEBUG
-                executeDebug(*models, "P1_1_reshaped_layer_" + i_str, N_PRINT);
-                if (quantize) {
-                    // need to dequantize (not sure if fixed or unfixed)
-                    TfNToFloat(
-                        (float*)buff_8.data(),
-                        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"]->data(),
-                        decoderQuantParams[i]["fc1_out"],
-                        seq_len * INTERMEDIATE_SIZE,
-                        8
-                    );
-                }
-                executeDebug(*models, "gelu", N_PRINT);
-                if (quantize) {
-                    // need to quantize (not sure if fixed or unfixed)
-                    FloatToTfN(
-                        buff_8.data(),
-                        decoderQuantParams[i]["gelu_fc1_out"],
-                        true,
-                        (float*)buff_8.data(),
-                        seq_len * INTERMEDIATE_SIZE,
-                        8
-                    );
-                }
-                executeDebug(*models, "P1_2_reshaped_layer_" + i_str, N_PRINT);
-            #else            
-                execute(*models, "P1_1_reshaped_layer_" + i_str);
-                if (quantize) {
-                    // need to dequantize (not sure if fixed or unfixed)
-                    TfNToFloat(
-                        (float*)buff_8.data(),
-                        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"]->data(),
-                        decoderQuantParams[i]["fc1_out"],
-                        seq_len * INTERMEDIATE_SIZE,
-                        8
-                    );
-                }
-                execute(*models, "gelu");
-                if (quantize) {
-                    // need to quantize (not sure if fixed or unfixed)
-                    FloatToTfN(
-                        buff_8.data(),
-                        decoderQuantParams[i]["gelu_fc1_out"],
-                        true,
-                        (float*)buff_8.data(),
-                        seq_len * INTERMEDIATE_SIZE,
-                        8
-                    );
-                }
-                execute(*models, "P1_2_reshaped_layer_" + i_str);
-            #endif
-            
-            query_shape = {1, 32, seq_len, 80};
-            key_shape   = {1, 32, seq_len, 80};
-            value_shape = {1, 32, seq_len, 80};
+            execute(*models, "P1_1_reshaped_layer_" + i_str);
+            if (quantize) {
+                // need to dequantize (not sure if fixed or unfixed)
+                TfNToFloat(
+                    (float*)buff_8.data(),
+                    (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"]->data(),
+                    decoderQuantParams[i]["fc1_out"],
+                    seq_len * INTERMEDIATE_SIZE,
+                    8
+                );
+            }
+            execute(*models, "gelu");
+            if (quantize) {
+                // need to quantize (not sure if fixed or unfixed)
+                FloatToTfN(
+                    buff_8.data(),
+                    decoderQuantParams[i]["gelu_fc1_out"],
+                    true,
+                    (float*)buff_8.data(),
+                    seq_len * INTERMEDIATE_SIZE,
+                    8
+                );
+            }
+            execute(*models, "P1_2_reshaped_layer_" + i_str);
 
             /* implement processing */
             // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
@@ -379,8 +342,10 @@ std::string modelLaunch(
             cos_cached_shape = {MAX_SEQ_LEN, 32};
 
             std::cout << "\t\t\tCalling DynamicTruncationAndConcatentation() #" << i_str << "\n";
-
+            // insure buff_8 is not being used at this point
             DynamicTruncationAndConcatentation(
+                seq_len,
+                buff_8,
                 buff_3.data(),
                 buff_4.data(),
                 buff_5.data(),
@@ -410,7 +375,6 @@ std::string modelLaunch(
                 rotary_emb_dim, // set
                 position_ids // set
             );
-
 
             if (quantize) {
                 // UnQuantize (query_states)(buff_3) (buff_8 as intermediate)
@@ -445,69 +409,49 @@ std::string modelLaunch(
             std::cout << "\t\t\tFinished DynamicTruncationAndConcatentation() #" << i_str << "\n";
 
             if (iteration_num == 0) {
+                // reshape_to_buff() {note: could optimize this by doing this before quantization}
+                reshapeToBufferedBeforeP2first(
+                    seq_len, 
+                    tot_seq_len,
+                    (float*)buff_8.data(),
+                    models
+                );
 
-                #ifdef DEBUG
-                    executeDebug(*models, "P2_1_first_buffered", N_PRINT);
-                    attn_weights_shape = {1, 32, seq_len, seq_len};
-                    mySoftmax(
-                        (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
-                        (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
-                        attn_weights_shape
-                    );
-                    if (quant_size) {
-                        // quantize
-                        // attn_weights (buff_8)
-                    }
-                    executeDebug(*models, "P3_first_buffered", N_PRINT);
-                    attn_output_shape = {1, seq_len, HIDDEN_SIZE};
-                #else
-                    execute(*models, "P2_1_first_buffered");
-                    attn_weights_shape = {1, 32, seq_len, seq_len};
-                    mySoftmax(
-                        (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
-                        (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
-                        attn_weights_shape
-                    );
-                    if (quant_size) {
-                        // qunatize
-                        // attn_weights (buff_8)
-                    }
-                    execute(*models, "P3_first_buffered");
-                    attn_output_shape = {1, seq_len, HIDDEN_SIZE};
-                #endif
+                execute(*models, "P2_1_first_buffered");
+                attn_weights_shape = {1, 32, seq_len, seq_len};
+                mySoftmax(
+                    (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
+                    (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
+                    attn_weights_shape
+                );
+                if (quant_size) {
+                    // qunatize
+                    // attn_weights (buff_8)
+                }
+                execute(*models, "P3_first_buffered");
+                attn_output_shape = {1, seq_len, HIDDEN_SIZE};
             }
             else {
-                #ifdef DEBUG
-                    executeDebug(*models, "P2_not_first_reshaped", N_PRINT);
-                    if (quantize) {
+                execute(*models, "P2_not_first_reshaped");
+                if (quantize) {
                         // qunatize
-                        // attn_weights (buff_8)
-                    }
-                    executeDebug(*models, "P3_not_first_buffered", N_PRINT);
-                #else
-                    execute(*models, "P2_not_first_reshaped");
-                    if (quantize) {
-                         // qunatize
-                        // attn_weights (buff_8)
-                    }
-                    execute(*models, "P3_not_first_buffered");
-                #endif
+                }
+                reshapeToBufferedBeforeP3notFirst(tot_seq_len, (uint8_t*)buff_3.data(), models);
+                execute(*models, "P3_not_first_buffered");
             }
 
-            #ifdef DEBUG
-                executeDebug(*models, "P4_1_reshaped_layer_" + i_str, N_PRINT);
-                if (quantize) {
-                    // unquantize
-                    
-                }
-                executeDebug(*models, "P4_2_reshaped", N_PRINT);
-            #else
-                execute(*models, "P4_1_reshaped_layer_" + i_str);
-                if (quantize) {
-                    // unquantize
-                }
-                execute(*models, "P4_2_reshaped");
-            #endif
+            bufferedToReshapeBeforeP4(
+                seq_len,
+                i_str,
+                (uint8_t*)buff_8.data(),
+                models
+            );
+
+            execute(*models, "P4_1_reshaped_layer_" + i_str);
+            if (quantize) {
+                // unquantize
+            }
+            execute(*models, "P4_2_reshaped");
 
             decoder_output_shape = {1, seq_len, HIDDEN_SIZE};
 
