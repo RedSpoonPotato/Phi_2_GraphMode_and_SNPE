@@ -114,6 +114,71 @@ void truncate_u8(
         else                { indice_start[dims_to_split[i]] = values[i]; }
     }
 
+    #ifdef DEBUG
+        for (int i=0;i<4;i++) {std::cout << indice_start[i] << " ";}
+        for (int i=0;i<4;i++) {std::cout << indice_end[i] << " ";}
+    #endif
+
+    // writing output
+    unsigned long long elements_written = 0;
+    unsigned long long dim_offsets[4] = {1, 1, 1, 1};
+    for (int i = rank - 2; i >= 0; i--) {
+        dim_offsets[i] = dim_offsets[i+1] * input_dims[i+1];
+    }
+
+    #ifdef DEBUG
+        std::cout << "\ttruncation(): about to enter quad for-loop\n";
+    #endif
+
+    for (int a = indice_start[0]; a <= indice_end[0]; a++) {
+        for (int b = indice_start[1]; b <= indice_end[1]; b++) {
+            for (int c = indice_start[2]; c <= indice_end[2]; c++) {
+                for (int d = indice_start[3]; d <= indice_end[3]; d++) {
+                    output[elements_written] = input[
+                        d + 
+                        c*dim_offsets[2] +
+                        b*dim_offsets[1] +
+                        a*dim_offsets[0]];
+                    elements_written++;
+                }
+            }
+        }
+    }
+    // writing output_dims
+    output_dims = std::vector<size_t>();
+    for (int i = 0; i < input_dims.size(); i++) {
+        output_dims.push_back(indice_end[i]+1 - indice_start[i]);
+    }
+}
+
+
+// not input-to-output safe
+template <typename T>
+void truncate(
+    const T* input, const std::vector<size_t>& input_dims,
+    T* output, std::vector<size_t>& output_dims,
+    const std::vector<int>& dims_to_split,
+    const std::vector<int>& values,
+    const std::vector<int>& colon_lefts
+) {
+    // assertions
+    const size_t rank = input_dims.size();
+    assert(rank <= 4); // assume 4d or less
+    assert(values.size() <= rank);
+    assert(dims_to_split.size() == values.size() == colon_lefts.size());
+    assert(input != output);
+    for (int i = 0; i < values.size(); i++) {
+        assert(values[i] < input_dims[dims_to_split[i]]);
+    }
+    // indice computation
+    int indice_start[] = {0,0,0,0};
+    int indice_end[]   = {0,0,0,0}; // including
+    for (int i = 0; i < rank; i++) { indice_end[i] = input_dims[i] - 1; }
+    for (int i = 0; i < values.size(); i++) {
+        if (colon_lefts[i]) { indice_end[dims_to_split[i]] = values[i] - 1; }
+        else                { indice_start[dims_to_split[i]] = values[i]; }
+    }
+
     for (int i=0;i<4;i++) {std::cout << indice_start[i] << " ";}
     for (int i=0;i<4;i++) {std::cout << indice_end[i] << " ";}
 
@@ -144,7 +209,6 @@ void truncate_u8(
         output_dims.push_back(indice_end[i]+1 - indice_start[i]);
     }
 }
-
 
 void mul_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::vector<size_t>& dims) {
     size_t num_elem = 1;
@@ -480,7 +544,10 @@ void transpose_u8(
 // seq_len:     11 - 1
 // tot_seq_len: 11 - 12
 
+// since using a large buffer for as a temp buff, could optimize by removing
 void DynamicTruncationAndConcatentation(
+    size_t seq_len,
+    std::vector<uint8_t>& temp_buff,
     uint8_t* query_states, // (1, 32, 11, 80) - (1, 32, 1, 80)
     uint8_t* key_states, // same as q
     uint8_t* value_states, // same as q
@@ -526,13 +593,35 @@ void DynamicTruncationAndConcatentation(
     printV("key_cache_shape", key_cache_shape);
     printV("value_cache_shape", value_cache_shape);
 
+    // reshape
+    query_shape = {1, seq_len, 32, 80};
+    key_shape   = {1, seq_len, 32, 80};
+    value_shape = {1, seq_len, 32, 80};
+    
+    // transpose
+    std::vector<size_t> temp_shape;
+    // query
+    transpose_u8(query_states, temp_buff.data(), {0, 2, 1, 3}, query_shape, temp_shape);
+    query_shape = temp_shape;
+    copyTensor(temp_buff.data(), query_states, query_shape);
+    // key
+    transpose_u8(key_states, temp_buff.data(), {0, 2, 1, 3}, key_shape, temp_shape);
+    key_shape = temp_shape;
+    copyTensor(temp_buff.data(), key_states, key_shape);
+    // value
+    transpose_u8(value_states, temp_buff.data(), {0, 2, 1, 3}, value_shape, temp_shape);
+    value_shape = temp_shape;
+    copyTensor(temp_buff.data(), value_states, value_shape);
+
+
+
     // implement kv stuff
     size_t kv_seq_len = key_shape.end()[-2];
     if (!firstRunForDecoder) {
         kv_seq_len += key_cache_shape.end()[-3]; // modified
         // kv_seq_len = tot_seq_len
     }
-        
+     
     // rotary emb
     rotary_emb_u8(
         value_states, value_shape, kv_seq_len,
@@ -631,6 +720,137 @@ void DynamicTruncationAndConcatentation(
             value_cache, value_states, {0, 2, 1, 3}, 
             value_cache_shape, value_shape
         );
+    }
+}
+
+// 
+template <typename T>
+void tensorPad(const T* in, const std::vector<size_t>& in_shape, const std::vector<std::vector<size_t>>& padding, const T& default_val, T* out, std::vector<size_t>& out_shape) {
+    // Calculate the output shape based on input shape and padding
+    out_shape.clear();
+    for (size_t i = 0; i < in_shape.size(); ++i) {
+        out_shape.push_back(in_shape[i] + padding[i][0] + padding[i][1]);
+    }
+    
+    // Compute total number of elements in input and output tensors
+    size_t in_size = 1;
+    size_t out_size = 1;
+    for (size_t dim : in_shape) in_size *= dim;
+    for (size_t dim : out_shape) out_size *= dim;
+
+    // Initialize the output tensor with the default value
+    std::fill(out, out + out_size, default_val);
+
+    // Compute strides for input and output tensors
+    std::vector<size_t> in_strides(in_shape.size(), 1);
+    std::vector<size_t> out_strides(out_shape.size(), 1);
+    for (int i = in_shape.size() - 2; i >= 0; --i) {
+        in_strides[i] = in_strides[i + 1] * in_shape[i + 1];
+    }
+    for (int i = out_shape.size() - 2; i >= 0; --i) {
+        out_strides[i] = out_strides[i + 1] * out_shape[i + 1];
+    }
+
+    // Copy data from input tensor to output tensor with padding
+    for (size_t idx = 0; idx < in_size; ++idx) {
+        size_t in_idx = idx;
+        size_t out_idx = 0;
+        for (size_t i = 0; i < in_shape.size(); ++i) {
+            size_t coord = in_idx / in_strides[i];
+            in_idx %= in_strides[i];
+            out_idx += (coord + padding[i][0]) * out_strides[i];
+        }
+        out[out_idx] = in[idx];
+    }
+}
+
+
+// could change so that buffer_shape.size() != reshape_shape.size()
+template <typename T>
+void reshaped_to_buffered(
+    const std::vector<size_t>& reshape_shape,
+    const std::vector<size_t>& buffer_shape,
+    const T& default_val,
+    const T* in,
+    T* temp_buff,
+    T* out
+) {
+    // ensure shapes are compatible
+    assert(reshape_shape.size() == buffer_shape.size());
+
+    // set padding
+    std:vector<std::vector<size_t>> padding(buffer_shape.size());
+    for (size_t dim = 0; dim < buffer_shape.size(); dim++) {
+        assert(buffer_shape[dim] >= reshape_shape[dim]);
+        size_t right = buffer_shape[dim] - reshape_shape[dim];
+        padding[dim] = {0, right};
+    }
+
+    // tensor pad to temp_buff
+    T* directed_output = (in == out) ? temp_buff : out;
+    std::vector<size_t> unnecessary_out_shape;
+    tensorPad(in, reshape_shape, padding, default_val, directed_output, unnecessary_out_shape);
+
+    // ensure shape is unnecessary_out_shape == buffer_shape
+    for (size_t i = 0; i < unnecessary_out_shape.size(); i++) {
+        assert(unnecessary_out_shape[i] == buffer_shape[i]);
+    }
+
+    // copy
+    if (in == out) {
+        copyTensor(directed_output, out, buffer_shape);
+    }
+}
+
+// untested
+template <typename T>
+void buffered_to_reshaped(
+    const std::vector<size_t>& buffer_shape,
+    const std::vector<size_t>& reshape_shape,
+    const T* in,
+    T* temp_buff,
+    T* out
+) {
+    assert(buffer_shape.size() == reshape_shape.size());
+
+    size_t buffer_size = 1;
+    for (size_t dim : buffer_shape) {
+        buffer_size *= dim;
+    }
+
+    size_t reshape_size = 1;
+    for (size_t dim : reshape_shape) {
+        reshape_size *= dim;
+    }
+
+    std::vector<size_t> buffer_strides(buffer_shape.size(), 1);
+    for (int i = buffer_shape.size() - 2; i >= 0; --i) {
+        buffer_strides[i] = buffer_strides[i + 1] * buffer_shape[i + 1];
+    }
+
+    std::vector<size_t> reshape_strides(reshape_shape.size(), 1);
+    for (int i = reshape_shape.size() - 2; i >= 0; --i) {
+        reshape_strides[i] = reshape_strides[i + 1] * reshape_shape[i + 1];
+    }
+
+    // write data
+    T* directed_output = (in == out) ? temp_buff : out;
+
+    for (size_t i = 0; i < reshape_size; ++i) {
+        size_t buffer_index = 0;
+        size_t remaining_index = i;
+
+        for (size_t j = 0; j < reshape_shape.size(); ++j) {
+            size_t index_in_dim = remaining_index / reshape_strides[j];
+            remaining_index %= reshape_strides[j];
+            buffer_index += index_in_dim * buffer_strides[j];
+        }
+
+        in[i] = in[buffer_index];
+    }
+
+    if (in == out) {
+        copyTensor(directed_output, out, reshape_shape);
     }
 }
 

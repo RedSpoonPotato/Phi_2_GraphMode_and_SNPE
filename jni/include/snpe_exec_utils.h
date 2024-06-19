@@ -945,21 +945,19 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 // }
 
 
-void executeDebug(std::map<std::string, ModelRuntime>& models, const std::string& model_name, size_t N) {
-    std::cout << "\nEXECUTION STAGE <" << model_name << ">\n";
-    for (const std::string& input_name : models[model_name].input_names) {
-        printN(input_name, models[model_name].applicationInputBuffers[input_name]->data(), N);
-    }
-
-    models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
-
-    for (const std::string& output_name : models[model_name].output_names) {
-        printN(output_name, models[model_name].applicationOutputBuffers[output_name]->data(), N);
-    }
-}
-
 void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name) {
-    models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
+    #ifdef DEBUG
+        std::cout << "\nEXECUTION STAGE <" << model_name << ">\n";
+        for (const std::string& input_name : models[model_name].input_names) {
+            printN(input_name, models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT);
+        }
+        models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
+        for (const std::string& output_name : models[model_name].output_names) {
+            printN(output_name, models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT);
+    }
+    #else
+        models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
+    #endif
 }
 
 
@@ -1099,13 +1097,13 @@ void prepareInputs_old(float* mask, int* position_ids, uint32_t seq_len, uint32_
 
 // iteration_num should first be 0
 template <typename T>
-void prepareMask(T* mask, uint32_t seq_len, uint32_t iteration_num)
+void prepareMask(T* mask, size_t seq_len, size_t iteration_num)
 {
     if (iteration_num == 0) {
         // set mask
         T lowest = std::numeric_limits<T>::lowest();
-        for (uint32_t row = 0; row < seq_len; row++) {
-            for (uint32_t col = 0; col < seq_len; col++) {
+        for (size_t row = 0; row < seq_len; row++) {
+            for (size_t col = 0; col < seq_len; col++) {
                 // std::cout << "(row, col): (" << row << ", " << col << ")\n";
                 if (row >= col) { mask[row*seq_len + col] = 0; }
                 else            { mask[row*seq_len + col] = lowest; } 
@@ -1114,8 +1112,90 @@ void prepareMask(T* mask, uint32_t seq_len, uint32_t iteration_num)
     }
     else {
         // set mask
-        for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
+        for (size_t i = 0; i < seq_len; i++) { mask[i] = 0; }
     }
+}
+
+// could template
+template <typename T>
+void reshapeToBufferedBeforeP2first(
+    size_t seq_len, 
+    size_t tot_seq_len,
+    T* temp_buff, 
+    std::map<std::string, ModelRuntime> *models
+) {
+    reshaped_to_buffered(
+        {1, 32, seq_len, 80},
+        {1, 32, MAX_SEQ_LEN, 80},
+        static_cast<T>(0),
+        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data()
+    );
+    reshaped_to_buffered(
+        {1, 32, tot_seq_len, 80},
+        {1, 32, MAX_SEQ_LEN, 80},
+        static_cast<T>(0),
+        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data()
+    );
+    reshaped_to_buffered(
+        {1, 32, tot_seq_len, 80},
+        {1, 32, MAX_SEQ_LEN, 80},
+        static_cast<T>(0),
+        (T*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"]->data()
+    );
+    reshaped_to_buffered(
+        {1, 32, seq_len, seq_len},
+        {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+        std::numeric_limits<T>::lowest(),
+        (T*)(*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"]->data()
+    );
+}
+
+template <typename T>
+void reshapeToBufferedBeforeP3notFirst(
+    size_t tot_seq_len,
+    T* temp_buff,
+    std::map<std::string, ModelRuntime> *models
+) {
+    reshaped_to_buffered(
+        {1, 32, tot_seq_len, 80},
+        {1, 32, MAX_SEQ_LEN, 80},
+        static_cast<T>(0),
+        (T*)(*models)["P3_not_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P3_not_first_buffered"].applicationInputBuffers["value_states:0"]->data()
+    );
+    reshaped_to_buffered(
+        {1, 32, 1, tot_seq_len},
+        {1, 32, 1, MAX_SEQ_LEN},
+        static_cast<T>(0),
+        (T*)(*models)["P3_not_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P3_not_first_buffered"].applicationInputBuffers["attn_weights:0"]->data()
+    );
+}
+
+template <typename T>
+void bufferedToReshapeBeforeP4(
+    size_t seq_len,
+    const std::string& i_str,
+    T* temp_buff,
+    std::map<std::string, ModelRuntime> *models
+) {
+    buffered_to_reshaped(
+        {MAX_SEQ_LEN, HIDDEN_SIZE},
+        {seq_len, HIDDEN_SIZE},
+        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
+        temp_buff,
+        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data()
+    );
 }
 
 typedef unsigned short ushort;

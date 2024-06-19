@@ -44,4 +44,6 @@
 
 // typedef uint16_t datatype;
 
+#define N_PRINT 5 // legnth of elements to print
+
 #endif
