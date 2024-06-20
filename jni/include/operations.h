@@ -8,6 +8,107 @@
 #include <cmath>
 #include "main_macros.h"
 
+typedef unsigned short ushort;
+typedef unsigned int uint;
+uint as_uint(const float x) {
+    return *(uint*)&x;
+}
+float as_float(const uint x) {
+    return *(float*)&x;
+}
+float half_to_float(const ushort x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint e = (x&0x7C00)>>10; // exponent
+    const uint m = (x&0x03FF)<<13; // mantissa
+    const uint v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
+    return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
+}
+ushort float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+    const uint b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
+    const uint e = (b&0x7F800000)>>23; // exponent
+    const uint m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
+    return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
+}
+
+void fp16_to_fp32(ushort* in, float* out, const std::vector<uint32_t>& dims) {
+    assert((void*)in != (void*)out);
+    size_t num_elem = dims.end()[-1];
+    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
+    for (size_t i = 0; i < num_elem; i++) {
+        out[i] = half_to_float(in[i]);
+    }
+}
+void fp32_to_fp16(float* in, ushort* out, const std::vector<uint32_t>& dims) {
+    assert((void*)in != (void*)out);
+    size_t num_elem = dims.end()[-1];
+    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
+    for (size_t i = 0; i < num_elem; i++) {
+        out[i] = float_to_half(in[i]);
+    }
+}
+
+template <typename T>
+void printN(const std::string& str, const T* vec, const size_t N, bool quantize) {
+    std::cout << str;
+    std::cout << ": [";
+    for (size_t i = 0; i < N; i++) {
+        if (quantize) {
+            std::cout << (int)(vec[i]);
+        }
+        else {
+            std::cout << vec[i];
+        }
+        std::cout << ", ";
+    }
+    std::cout << "]\n";
+}
+
+template <typename T>
+void printV(const std::string& str, const std::vector<T>& vec) {
+    std::cout << str;
+    std::cout << ": [";
+    for (int i = 0; i < vec.size(); i++) {
+        std::cout << vec[i];
+        if (i != vec.size()-1) { std::cout << ", ";}
+    }
+    std::cout << "]\n";
+}
+
+
+
+// does not really work with every datatype
+// template <typename T>
+// void printT(
+//     const std::string& str, const std::vector<uint32_t>& dims, const T* tensor, 
+//     bool precise, size_t max_elem
+//     ) {
+//     // print dims
+//     printV(str, dims);
+//     // calculate size of each dimension
+//     std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
+//     for (int i = dims.size()-2; i >= 0; i--) {
+//         uint32_t offset = dims[i] * dim_sizes.end()[-1];
+//         dim_sizes.push_back(offset);
+//     }
+//     // calculate total number of elements
+//     size_t tot_elements = 1;
+//     for (auto i : dims) { tot_elements *= i; }
+//     // print everything
+//     for (auto i : dims) { std::cout << "["; }
+//     for (size_t i = 0; i < tot_elements; i++) {
+//         if (i > max_elem) {break;}
+//         for (auto j : dim_sizes) {
+//             if (i % j == 0 && i != 0) {
+//                 std::cout << "]\n[";
+//             }
+//         }
+//         if (precise) { std::cout << std::setprecision(30) 
+//             << half_to_float(static_cast<ushort>(tensor[i])) << ", "; }
+//         else { std::cout << half_to_float(static_cast<ushort>(tensor[i]) << ", "; }
+//     }
+//     for (auto i : dims) { std::cout << "]"; }
+//     std::cout << "\n";
+// }
+
 
 template <typename T>
 void copyTensor(const T* ten1, T* out, const std::vector<size_t>& dims) {
@@ -613,8 +714,6 @@ void DynamicTruncationAndConcatentation(
     value_shape = temp_shape;
     copyTensor(temp_buff.data(), value_states, value_shape);
 
-
-
     // implement kv stuff
     size_t kv_seq_len = key_shape.end()[-2];
     if (!firstRunForDecoder) {
@@ -779,7 +878,7 @@ void reshaped_to_buffered(
     assert(reshape_shape.size() == buffer_shape.size());
 
     // set padding
-    std:vector<std::vector<size_t>> padding(buffer_shape.size());
+    std::vector<std::vector<size_t>> padding(buffer_shape.size());
     for (size_t dim = 0; dim < buffer_shape.size(); dim++) {
         assert(buffer_shape[dim] >= reshape_shape[dim]);
         size_t right = buffer_shape[dim] - reshape_shape[dim];
@@ -802,14 +901,12 @@ void reshaped_to_buffered(
     }
 }
 
-// untested
+// in-memory
 template <typename T>
 void buffered_to_reshaped(
     const std::vector<size_t>& buffer_shape,
     const std::vector<size_t>& reshape_shape,
-    const T* in,
-    T* temp_buff,
-    T* out
+    T* in
 ) {
     assert(buffer_shape.size() == reshape_shape.size());
 
@@ -833,9 +930,6 @@ void buffered_to_reshaped(
         reshape_strides[i] = reshape_strides[i + 1] * reshape_shape[i + 1];
     }
 
-    // write data
-    T* directed_output = (in == out) ? temp_buff : out;
-
     for (size_t i = 0; i < reshape_size; ++i) {
         size_t buffer_index = 0;
         size_t remaining_index = i;
@@ -847,10 +941,6 @@ void buffered_to_reshaped(
         }
 
         in[i] = in[buffer_index];
-    }
-
-    if (in == out) {
-        copyTensor(directed_output, out, reshape_shape);
     }
 }
 

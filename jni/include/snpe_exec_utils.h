@@ -35,6 +35,7 @@
 // #include "snpe_exec_utils.h"
 #include "main_macros.h"
 #include "snpe_tutorial_utils.h"
+#include "operations.h"
 #include <map>
 
 // 1 per model
@@ -324,7 +325,7 @@ void linkBuffers(
     (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7;
     (*models)["P2_not_first_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
-    (*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"] = &buff_5;
+    (*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
     (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
     (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
 
@@ -945,15 +946,26 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 // }
 
 
-void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name) {
+// assuming either uint8_t or float for now
+void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name, bool quantize) {
     #ifdef DEBUG
         std::cout << "\nEXECUTION STAGE <" << model_name << ">\n";
         for (const std::string& input_name : models[model_name].input_names) {
-            printN(input_name, models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT);
+            if (quantize) {
+                printN(input_name, (uint8_t*)models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT, quantize);
+            }
+            else {
+                printN(input_name, (float*)models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT, quantize);
+            }
         }
         models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
         for (const std::string& output_name : models[model_name].output_names) {
-            printN(output_name, models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT);
+            if (quantize) {
+                printN(output_name, (uint8_t*)models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT, quantize);
+            }
+            else {
+                printN(output_name, (float*)models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT, quantize);
+            }
     }
     #else
         models[model_name].snpe->execute(models[model_name].inputMap, models[model_name].outputMap);
@@ -1117,45 +1129,52 @@ void prepareMask(T* mask, size_t seq_len, size_t iteration_num)
 }
 
 // could template
-template <typename T>
+template <typename unquant_type, typename quant_type>
 void reshapeToBufferedBeforeP2first(
     size_t seq_len, 
     size_t tot_seq_len,
-    T* temp_buff, 
-    std::map<std::string, ModelRuntime> *models
+    void* temp_buff, 
+    std::map<std::string, ModelRuntime> *models,
+    unquant_type unquant_val,
+    quant_type quant_val
 ) {
+    std::cout << "calling reshape_to_buffered(query)\n";
     reshaped_to_buffered(
         {1, 32, seq_len, 80},
         {1, 32, MAX_SEQ_LEN, 80},
-        static_cast<T>(0),
-        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
-        temp_buff,
-        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data()
+        static_cast<unquant_type>(0),
+        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+        (unquant_type*)temp_buff,
+        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data()
     );
+    std::cout << "calling reshape_to_buffered(key)\n";
     reshaped_to_buffered(
         {1, 32, tot_seq_len, 80},
         {1, 32, MAX_SEQ_LEN, 80},
-        static_cast<T>(0),
-        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data(),
-        temp_buff,
-        (T*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data()
+        static_cast<unquant_type>(0),
+        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data(),
+        (unquant_type*)temp_buff,
+        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data()
     );
+    std::cout << "calling reshape_to_buffered(value)\n";
     reshaped_to_buffered(
         {1, 32, tot_seq_len, 80},
-        {1, 32, MAX_SEQ_LEN, 80},
-        static_cast<T>(0),
-        (T*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"]->data(),
-        temp_buff,
-        (T*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states_0:0"]->data()
+        {1, MAX_SEQ_LEN, 32, 80},
+        static_cast<quant_type>(0),
+        (quant_type*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+        (quant_type*)temp_buff,
+        (quant_type*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data()
     );
+    std::cout << "calling reshape_to_buffered(mask)\n";
     reshaped_to_buffered(
-        {1, 32, seq_len, seq_len},
-        {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-        std::numeric_limits<T>::lowest(),
-        (T*)(*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"]->data(),
-        temp_buff,
-        (T*)(*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"]->data()
+        {1, 1, seq_len, seq_len},
+        {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
+        std::numeric_limits<unquant_type>::lowest(),
+        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+        (unquant_type*)temp_buff,
+        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()
     );
+    std::cout << "finished reshape_to_buffered(mask)\n";
 }
 
 template <typename T>
@@ -1186,111 +1205,16 @@ template <typename T>
 void bufferedToReshapeBeforeP4(
     size_t seq_len,
     const std::string& i_str,
-    T* temp_buff,
-    std::map<std::string, ModelRuntime> *models
+    std::map<std::string, ModelRuntime> *models,
+    T dummy_val
 ) {
     buffered_to_reshaped(
         {MAX_SEQ_LEN, HIDDEN_SIZE},
         {seq_len, HIDDEN_SIZE},
-        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
-        temp_buff,
         (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data()
     );
 }
 
-typedef unsigned short ushort;
-typedef unsigned int uint;
-uint as_uint(const float x) {
-    return *(uint*)&x;
-}
-float as_float(const uint x) {
-    return *(float*)&x;
-}
-float half_to_float(const ushort x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
-    const uint e = (x&0x7C00)>>10; // exponent
-    const uint m = (x&0x03FF)<<13; // mantissa
-    const uint v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
-    return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
-}
-ushort float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
-    const uint b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
-    const uint e = (b&0x7F800000)>>23; // exponent
-    const uint m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
-    return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
-}
-
-void fp16_to_fp32(ushort* in, float* out, const std::vector<uint32_t>& dims) {
-    assert((void*)in != (void*)out);
-    size_t num_elem = dims.end()[-1];
-    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
-    for (size_t i = 0; i < num_elem; i++) {
-        out[i] = half_to_float(in[i]);
-    }
-}
-void fp32_to_fp16(float* in, ushort* out, const std::vector<uint32_t>& dims) {
-    assert((void*)in != (void*)out);
-    size_t num_elem = dims.end()[-1];
-    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
-    for (size_t i = 0; i < num_elem; i++) {
-        out[i] = float_to_half(in[i]);
-    }
-}
-
-template <typename T>
-void printV(const std::string& str, const std::vector<T>& vec) {
-    std::cout << str;
-    std::cout << ": [";
-    for (int i = 0; i < vec.size(); i++) {
-        std::cout << vec[i];
-        if (i != vec.size()-1) { std::cout << ", ";}
-    }
-    std::cout << "]\n";
-}
-
-template <typename T>
-void printN(const std::string& str, const T* vec, const size_t N) {
-    std::cout << str;
-    std::cout << ": [";
-    for (size_t i = 0; i < N; i++) {
-        std::cout << vec[i];
-        std::cout << ", ";
-    }
-    std::cout << "]\n";
-}
-
-// does not really work with every datatype
-template <typename T>
-void printT(
-    const std::string& str, const std::vector<uint32_t>& dims, const T* tensor, 
-    bool precise, size_t max_elem
-    ) {
-    // print dims
-    printV(str, dims);
-    // calculate size of each dimension
-    std::vector<uint32_t> dim_sizes = {dims.end()[-1]};
-    for (int i = dims.size()-2; i >= 0; i--) {
-        uint32_t offset = dims[i] * dim_sizes.end()[-1];
-        dim_sizes.push_back(offset);
-    }
-    // calculate total number of elements
-    size_t tot_elements = 1;
-    for (auto i : dims) { tot_elements *= i; }
-    // print everything
-    for (auto i : dims) { std::cout << "["; }
-    for (size_t i = 0; i < tot_elements; i++) {
-        if (i > max_elem) {break;}
-        for (auto j : dim_sizes) {
-            if (i % j == 0 && i != 0) {
-                std::cout << "]\n[";
-            }
-        }
-        if (precise) { std::cout << std::setprecision(30) 
-            << half_to_float((ushort)tensor[i]) << ", "; }
-        else { std::cout << half_to_float((ushort)tensor[i]) << ", "; }
-    }
-    for (auto i : dims) { std::cout << "]"; }
-    std::cout << "\n";
-}
 
 
 
