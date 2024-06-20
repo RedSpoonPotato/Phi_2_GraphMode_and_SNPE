@@ -14,7 +14,8 @@ int main(int argc, char** argv) {
 
     // std::vector<zdl::DlSystem::Runtime_t> runtime_modes;
     std::map<std::string, zdl::DlSystem::Runtime_t> runtime_modes;
-    auto runtime_type = zdl::DlSystem::Runtime_t::DSP;
+    // auto runtime_type = zdl::DlSystem::Runtime_t::DSP;
+    auto runtime_type = zdl::DlSystem::Runtime_t::CPU;
 
     size_t datasize;
     bool isTFBuffer;
@@ -90,8 +91,8 @@ int main(int argc, char** argv) {
 
     // setting sin, cos, embedding paths
     std::map<std::string, std::string> otherPaths;
-    otherPaths["sin"] = "./fp16_test/model_split/data/sin.bin"; // 32-bit
-    otherPaths["cos"] = "./fp16_test/model_split/data/cos.bin"; // 32-bit
+    otherPaths["sin"] = "./fp16_test/model_split/data/sin_cached.bin"; // 32-bit
+    otherPaths["cos"] = "./fp16_test/model_split/data/cos_cached.bin"; // 32-bit
     otherPaths["embedding"] = "./fp16_test/model_split/data/embedding.bin"; // 16-bit
     otherPaths["token_vocab"] = "./fp16_test/model_split/data/vocab.json";
     otherPaths["token_merges"] = "./fp16_test/model_split/data/merges.txt";

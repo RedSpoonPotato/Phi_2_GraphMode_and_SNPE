@@ -232,7 +232,7 @@ std::string modelLaunch(
         );
 
         #ifdef DEBUG
-            printN("embedding 32 bit", (float*)buff_1.data(), N_PRINT);
+            printN("embedding 32 bit", (float*)buff_1.data(), N_PRINT, false);
         #endif
 
         // set decoder_output as input to layernorm
@@ -249,7 +249,8 @@ std::string modelLaunch(
             printN(
                 "prepared Mask", 
                 (float*)((*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()),
-                N_PRINT
+                N_PRINT,
+                false
             );
             std::cout << "executing model\n";
         #endif
@@ -272,7 +273,8 @@ std::string modelLaunch(
                 printN(
                     "Decoder Layer " + i_str, 
                     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
-                    N_PRINT
+                    N_PRINT,
+                    false
                 );
             std::cout << "executing model\n";
             #endif
@@ -281,7 +283,7 @@ std::string modelLaunch(
                 // need to quantize (not sure if fixed or unfixed)
                 FloatToTfN(
                     (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
-                    decoderQuantParams[i]["hidden_states"],
+                    decoderQuantParams[i].at("hidden_states"),
                     false,
                     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
                     seq_len * HIDDEN_SIZE,
@@ -293,16 +295,16 @@ std::string modelLaunch(
                     TfNToFloat(
                         (float*)buff_6.data(),
                         (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
-                        decoderQuantParams[i]["hidden_states"],
+                        decoderQuantParams[i].at("hidden_states"),
                         seq_len * HIDDEN_SIZE,
                         8
                     );
 
-                    printN("hidden_states after quantization test (should match prev)", (float*)buff_6.data(), N_PRINT);
+                    printN("hidden_states after quantization test (should match prev)", (float*)buff_6.data(), N_PRINT, true);
 
                     FloatToTfN(
                         (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
-                        decoderQuantParams[i]["hidden_states"],
+                        decoderQuantParams[i].at("hidden_states"),
                         false,
                         (float*)buff_6.data(),
                         seq_len * HIDDEN_SIZE,
@@ -311,30 +313,30 @@ std::string modelLaunch(
                 }
             }
 
-            execute(*models, "P1_1_reshaped_layer_" + i_str);
+            execute(*models, "P1_1_reshaped_layer_" + i_str, true);
             if (quantize) {
                 // need to dequantize (not sure if fixed or unfixed)
                 TfNToFloat(
                     (float*)buff_8.data(),
                     (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"]->data(),
-                    decoderQuantParams[i]["fc1_out"],
+                    decoderQuantParams[i].at("fc1_out"),
                     seq_len * INTERMEDIATE_SIZE,
                     8
                 );
             }
-            execute(*models, "gelu");
+            execute(*models, "gelu", false);
             if (quantize) {
                 // need to quantize (not sure if fixed or unfixed)
                 FloatToTfN(
                     buff_8.data(),
-                    decoderQuantParams[i]["gelu_fc1_out"],
+                    decoderQuantParams[i].at("gelu_fc1_out"),
                     true,
                     (float*)buff_8.data(),
                     seq_len * INTERMEDIATE_SIZE,
                     8
                 );
             }
-            execute(*models, "P1_2_reshaped_layer_" + i_str);
+            execute(*models, "P1_2_reshaped_layer_" + i_str, true);
 
             /* implement processing */
             // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
@@ -381,7 +383,7 @@ std::string modelLaunch(
                 TfNToFloat(
                     (float*)buff_8.data(),
                     (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
-                    decoderQuantParams[i]["query_states"],
+                    decoderQuantParams[i].at("query_states"),
                     seq_len * INTERMEDIATE_SIZE,
                     8
                 );
@@ -395,7 +397,7 @@ std::string modelLaunch(
                 TfNToFloat(
                     (float*)buff_8.data(),
                     (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
-                    decoderQuantParams[i]["query_states"],
+                    decoderQuantParams[i].at("query_states"),
                     seq_len * INTERMEDIATE_SIZE,
                     8
                 );
@@ -414,10 +416,12 @@ std::string modelLaunch(
                     seq_len, 
                     tot_seq_len,
                     (float*)buff_8.data(),
-                    models
+                    models,
+                    (float)1,
+                    (uint8_t)1
                 );
 
-                execute(*models, "P2_1_first_buffered");
+                execute(*models, "P2_1_first_buffered", false);
                 attn_weights_shape = {1, 32, seq_len, seq_len};
                 mySoftmax(
                     (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
@@ -428,30 +432,26 @@ std::string modelLaunch(
                     // qunatize
                     // attn_weights (buff_8)
                 }
-                execute(*models, "P3_first_buffered");
+                execute(*models, "P3_first_buffered", true);
                 attn_output_shape = {1, seq_len, HIDDEN_SIZE};
             }
             else {
-                execute(*models, "P2_not_first_reshaped");
+                execute(*models, "P2_not_first_reshaped", false);
                 if (quantize) {
                         // qunatize
                 }
                 reshapeToBufferedBeforeP3notFirst(tot_seq_len, (uint8_t*)buff_3.data(), models);
-                execute(*models, "P3_not_first_buffered");
+                execute(*models, "P3_not_first_buffered", true);
             }
 
-            bufferedToReshapeBeforeP4(
-                seq_len,
-                i_str,
-                (uint8_t*)buff_8.data(),
-                models
-            );
+            // the 2 is a dummy val for the template
+            bufferedToReshapeBeforeP4(seq_len, i_str, models, (uint8_t)2);
 
-            execute(*models, "P4_1_reshaped_layer_" + i_str);
+            execute(*models, "P4_1_reshaped_layer_" + i_str, true);
             if (quantize) {
                 // unquantize
             }
-            execute(*models, "P4_2_reshaped");
+            execute(*models, "P4_2_reshaped", false);
 
             decoder_output_shape = {1, seq_len, HIDDEN_SIZE};
 

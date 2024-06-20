@@ -11,7 +11,7 @@ INCLUDES += -I $(SNPE_ROOT)/include/zdl -I include/ -I $(SNPE_ROOT)/include/SNPE
 LDFLAGS  += -shared -L $(SNPE_ROOT)/lib/x86_64-linux-clang
 
 # Specify the link libraries
-LLIBS    += -lSNPE 
+LLIBS    += -lSNPE -lboost_regex -lboost_system -lboost_filesystem
 
 # Specify the target
 SO_FILE := libmain.so
