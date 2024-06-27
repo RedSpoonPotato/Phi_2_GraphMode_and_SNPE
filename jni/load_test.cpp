@@ -10,7 +10,8 @@
 int main(int argc, char** argv) {
 
     // assert(argc == 6);
-    std::string input_txt = "this test does not matter";
+    // std::string input_txt = "this test does not matter";
+    std::string input_txt = "What is your favorite color?. Mine is red.";
 
     // std::vector<zdl::DlSystem::Runtime_t> runtime_modes;
     std::map<std::string, zdl::DlSystem::Runtime_t> runtime_modes;
@@ -96,6 +97,12 @@ int main(int argc, char** argv) {
     otherPaths["embedding"] = "./fp16_test/model_split/data/embedding.bin"; // 16-bit
     otherPaths["token_vocab"] = "./fp16_test/model_split/data/vocab.json";
     otherPaths["token_merges"] = "./fp16_test/model_split/data/merges.txt";
+    // otherPaths[""] = "./fp16_test/model_split/data/merges.txt";
+    for (size_t i = 0; i < DECODERS; i++) {
+        std::string i_str = std::to_string(i);
+        otherPaths["layernorm_weight_" + i_str] = "./fp16_test/model_split/data/layernorm_weight_" + i_str + ".bin";
+        otherPaths["layernorm_bias_" + i_str] = "./fp16_test/model_split/data/layernorm_bias_" + i_str + ".bin";
+    }
 
     // other params
     uint32_t max_iterations = 2;  // CHANGE THIS TO WHATEVER IT SHOULD BE

@@ -178,11 +178,17 @@ std::string modelLaunch(
         create_user_buffers(*models, datasize, isTFBuffer);
 
         #ifdef DEBUG
-            std::cout << "\t\t\t--CHECKPOINT G--\n";
+            std::cout << "\t\t\t--CHECKPOINT G1--\n";
         #endif
         // put these back in later
-        loadAndQuantize(sin_cached, otherPaths.at("sin"));
-        loadAndQuantize(cos_cached, otherPaths.at("cos"));
+        loadAndQuantize(sin_cached, otherPaths.at("sin"), quantize);
+        loadAndQuantize(cos_cached, otherPaths.at("cos"), quantize);
+
+        #ifdef DEBUG
+            std::cout << "\t\t\t--CHECKPOINT G2--\n";
+        #endif
+
+        loadLayerNorms(layernorm_weights, layernorm_biases, otherPaths);
 
         zdl::SNPE::SNPEFactory::terminateLogging();
     }
@@ -200,6 +206,9 @@ std::string modelLaunch(
     for (int i = 0; i < tot_token_seq.size(); i++) { position_ids.push_back(i); }
 
     #ifdef DEBUG
+        std::cout << "tokens: ";
+        for (const auto i : tot_token_seq) {std::cout << i << ", ";}
+        std::cout << "\n";
         std::cout << "\t\t\t--CHECKPOINT H--\n";
     #endif
 
@@ -207,6 +216,7 @@ std::string modelLaunch(
 
     uint32_t next_token;
 
+    //  these are intially the same
     size_t tot_seq_len  = tot_token_seq.size();
     size_t seq_len      = token_seq.size();
 
@@ -271,7 +281,7 @@ std::string modelLaunch(
             );
             #ifdef DEBUG
                 printN(
-                    "Decoder Layer " + i_str, 
+                    "Decoder LayerNorm" + i_str, 
                     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
                     N_PRINT,
                     false
@@ -313,7 +323,7 @@ std::string modelLaunch(
                 }
             }
 
-            execute(*models, "P1_1_reshaped_layer_" + i_str, true);
+            execute(*models, "P1_1_reshaped_layer_" + i_str, quantize);
             if (quantize) {
                 // need to dequantize (not sure if fixed or unfixed)
                 TfNToFloat(
@@ -336,31 +346,32 @@ std::string modelLaunch(
                     8
                 );
             }
-            execute(*models, "P1_2_reshaped_layer_" + i_str, true);
+            execute(*models, "P1_2_reshaped_layer_" + i_str, quantize);
 
             /* implement processing */
             // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
             sin_cached_shape = {MAX_SEQ_LEN, 32};
             cos_cached_shape = {MAX_SEQ_LEN, 32};
 
+
             std::cout << "\t\t\tCalling DynamicTruncationAndConcatentation() #" << i_str << "\n";
             // insure buff_8 is not being used at this point
             DynamicTruncationAndConcatentation(
                 seq_len,
-                buff_8,
-                buff_3.data(),
-                buff_4.data(),
-                buff_5.data(),
-                sin_cached.data(), // (11, 32) - (12, 32)
-                cos_cached.data(),
-                sin_buff.data(),
-                cos_buff.data(),
-                k_cache[i].data(), // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
-                v_cache[i].data(), // same as key_cache
-                query_rot_buff.data(),
-                query_pass_buff.data(),
-                key_rot_buff.data(),
-                key_pass_buff.data(),
+                (QUANT_TYPE*)buff_8.data(), // temp_buff
+                (QUANT_TYPE*)buff_3.data(),
+                (QUANT_TYPE*)buff_4.data(),
+                (QUANT_TYPE*)buff_5.data(),
+                (QUANT_TYPE*)sin_cached.data(), // (11, 32) - (12, 32)
+                (QUANT_TYPE*)cos_cached.data(),
+                (QUANT_TYPE*)sin_buff.data(),
+                (QUANT_TYPE*)cos_buff.data(),
+                (QUANT_TYPE*)k_cache[i].data(), // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
+                (QUANT_TYPE*)v_cache[i].data(), // same as key_cache
+                (QUANT_TYPE*)query_rot_buff.data(),
+                (QUANT_TYPE*)query_pass_buff.data(),
+                (QUANT_TYPE*)key_rot_buff.data(),
+                (QUANT_TYPE*)key_pass_buff.data(),
                 query_shape, // set
                 key_shape, // set
                 value_shape, // set
@@ -377,6 +388,7 @@ std::string modelLaunch(
                 rotary_emb_dim, // set
                 position_ids // set
             );
+
 
             if (quantize) {
                 // UnQuantize (query_states)(buff_3) (buff_8 as intermediate)
@@ -432,7 +444,7 @@ std::string modelLaunch(
                     // qunatize
                     // attn_weights (buff_8)
                 }
-                execute(*models, "P3_first_buffered", true);
+                execute(*models, "P3_first_buffered", quantize);
                 attn_output_shape = {1, seq_len, HIDDEN_SIZE};
             }
             else {
@@ -441,13 +453,13 @@ std::string modelLaunch(
                         // qunatize
                 }
                 reshapeToBufferedBeforeP3notFirst(tot_seq_len, (uint8_t*)buff_3.data(), models);
-                execute(*models, "P3_not_first_buffered", true);
+                execute(*models, "P3_not_first_buffered", quantize);
             }
 
             // the 2 is a dummy val for the template
             bufferedToReshapeBeforeP4(seq_len, i_str, models, (uint8_t)2);
 
-            execute(*models, "P4_1_reshaped_layer_" + i_str, true);
+            execute(*models, "P4_1_reshaped_layer_" + i_str, quantize);
             if (quantize) {
                 // unquantize
             }
