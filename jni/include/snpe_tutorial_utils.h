@@ -214,6 +214,42 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex(std::unique_ptr<zdl::DlCon
     return snpe;
 }
 
+std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex_multipleOuts(std::unique_ptr<zdl::DlContainer::IDlContainer> & container,
+                                                   zdl::DlSystem::Runtime_t runtime,
+                                                   zdl::DlSystem::RuntimeList runtimeList,
+                                                   bool useUserSuppliedBuffers,
+                                                   zdl::DlSystem::PlatformConfig platformConfig,
+                                                   bool useCaching, bool cpuFixedPointMode,
+                                                   const std::vector<std::string>& outputNames)
+{
+    std::unique_ptr<zdl::SNPE::SNPE> snpe;
+    zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+
+    zdl::DlSystem::StringList outputNamesList;
+    std::cout << "appending\n";
+    for (size_t i = 0; i < outputNames.size(); i++) { 
+        std::cout << "i: " << i << "\n";
+        outputNamesList.append(outputNames[i].c_str()); 
+    }
+    std::cout << "done appending\n";
+    // for (size_t i = 0; i < outputNames.size(); i++) { outputNamesList.append(outputNames[i].c_str()); }
+
+    if(runtimeList.empty())
+    {
+        runtimeList.add(runtime);
+    }
+    snpe = snpeBuilder.setOutputLayers({})
+       .setRuntimeProcessorOrder(runtimeList)
+       .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
+    //    .setOutputLayers(outputNamesList)
+        .setOutputTensors(outputNamesList)
+    //    .setPlatformConfig(platformConfig)
+    //    .setInitCacheMode(useCaching)
+    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .build();
+    return snpe;
+}
+
 std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
     std::unique_ptr<zdl::DlContainer::IDlContainer> & container,
     zdl::DlSystem::Runtime_t runtime,
@@ -600,9 +636,10 @@ void executeNetwork(
     });
 }
 
-std::vector<std::string> StringListToVector(zdl::DlSystem::StringList str_list) {
+std::vector<std::string> StringListToVector(zdl::DlSystem::StringList& str_list) {
     #ifdef DEBUG
         std::cout << "calling StringListToVector()\n";
+        std::cout << "zdl::DlSystem::StringList.size() " << str_list.size() << "\n";
     #endif
     std::vector<std::string> vec;
     for (int i = 0; i < str_list.size(); i++) {

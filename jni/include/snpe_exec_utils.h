@@ -237,7 +237,28 @@ void parse_argv_other(
 //    std::cout << "---------------------------\n";
 // }
 
-void loadFile(std::vector<uint8_t>& vec, const std::string& filePath) {
+// void loadFileAndResize(std::vector<uint8_t>& vec, const std::string& filePath) {
+//     std::ifstream file(filePath, std::ios::binary);
+//     if (!file.is_open()) {
+//         throw std::runtime_error("Unable to open file: " + filePath);
+//     }
+//     // Determine the file size
+//     file.seekg(0, std::ios::end);
+//     size_t fileSize = file.tellg();
+//     file.seekg(0, std::ios::beg);
+//     // Resize the vector to fit the file content
+//     vec.resize(fileSize);
+//     // Load the file content into the vector
+//     if (!file.read(reinterpret_cast<char*>(vec.data()), fileSize)) {
+//         throw std::runtime_error("Error reading file: " + filePath);
+//     }
+//     file.close();
+// }
+
+
+
+template <typename T> 
+void loadFileAndResize(std::vector<T>& vec, const std::string& filePath) {
     std::ifstream file(filePath, std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Unable to open file: " + filePath);
@@ -246,8 +267,33 @@ void loadFile(std::vector<uint8_t>& vec, const std::string& filePath) {
     file.seekg(0, std::ios::end);
     size_t fileSize = file.tellg();
     file.seekg(0, std::ios::beg);
+    size_t datasize = sizeof(T);
     // Resize the vector to fit the file content
-    vec.resize(fileSize);
+    vec.resize(fileSize / datasize);
+    // Load the file content into the vector
+    if (!file.read(reinterpret_cast<char*>(vec.data()), fileSize)) {
+        throw std::runtime_error("Error reading file: " + filePath);
+    }
+    file.close();
+}
+
+template <typename T> 
+void loadFileAndDontResize(std::vector<T>& vec, const std::string& filePath) {
+    std::ifstream file(filePath, std::ios::binary);
+    if (!file.is_open()) {
+        throw std::runtime_error("Unable to open file: " + filePath);
+    }
+    // Determine the file size
+    file.seekg(0, std::ios::end);
+    size_t fileSize = file.tellg();
+    file.seekg(0, std::ios::beg);
+    size_t datasize = sizeof(T);
+    #ifdef DEBUG
+        std::cout << "file size: " << fileSize << "\n";
+        std::cout << "datasize: " << datasize << "\n";
+        std::cout << "vec buff size: " << vec.size() << "\n";
+        std::cout << "vec buff size in bytes: " << datasize * vec.size() << "\n";
+    #endif
     // Load the file content into the vector
     if (!file.read(reinterpret_cast<char*>(vec.data()), fileSize)) {
         throw std::runtime_error("Error reading file: " + filePath);
@@ -262,29 +308,48 @@ void loadFile(std::vector<uint8_t>& vec, const std::string& filePath) {
 
 void loadAndQuantize(
     std::vector<uint8_t>& buff, 
-    const std::string& filePath
+    const std::string& filePath,
+    bool quantize
 ) {
-    // grab fp32 data
-    std::vector<uint8_t> temp_buff;
-    loadFile(temp_buff, filePath);
-    // quantize to uint8
-    // (this might be a horrible result, print the results)
-    unsigned char stepEquivalentTo0 = 0;
-    float quantizedStepSize = 0;
-    FloatToTfN(buff.data(),
-                stepEquivalentTo0,
-                quantizedStepSize,
-                false,
-                (float*)temp_buff.data(),
-                temp_buff.size() / 4,
-                8);
-    // can remove this later
-    std::cout << "testing the results of the qunantization:\n";
-    for (int i = 0; i < 5; i++) { std::cout << buff[i] << " "; } 
-    std::cout << "\n";
+    if (quantize) {
+        // grab fp32 data
+        std::vector<uint8_t> temp_buff;
+        loadFileAndResize(temp_buff, filePath);
+        // quantize to uint8
+        // (this might be a horrible result, print the results)
+        unsigned char stepEquivalentTo0 = 0;
+        float quantizedStepSize = 0;
+        FloatToTfN(buff.data(),
+                    stepEquivalentTo0,
+                    quantizedStepSize,
+                    false,
+                    (float*)temp_buff.data(),
+                    temp_buff.size() / 4,
+                    8);
+        // can remove this later
+        std::cout << "testing the results of the qunantization:\n";
+        for (int i = 0; i < 5; i++) { std::cout << buff[i] << " "; } 
+        std::cout << "\n";
+    }
+    else {
+        loadFileAndResize(buff, filePath);
+    }
 }
 
-
+template <typename T>
+void loadLayerNorms(
+    std::vector<std::vector<T>>& layernorm_weights,
+    std::vector<std::vector<T>>& layernorm_biases, 
+    const std::map<std::string, std::string>& otherPaths
+) {
+    assert(layernorm_weights.size() == layernorm_weights.size());
+    assert(layernorm_weights.size() == DECODERS);
+    for (size_t i = 0; i < DECODERS; i++) {
+        std::string i_str = std::to_string(i);
+        loadFileAndDontResize(layernorm_weights[i], otherPaths.at("layernorm_weight_" + i_str));
+        loadFileAndDontResize(layernorm_biases[i], otherPaths.at("layernorm_bias_" + i_str));
+    }
+}
 
 
 void linkBuffers(
@@ -471,7 +536,7 @@ std::string intialize_model_runtime(
         #endif 
 
         /* new way of loading dlc */
-        loadFile(runtimes[model].dlc_buff, runtimes[model].dlc_path);
+        loadFileAndResize(runtimes[model].dlc_buff, runtimes[model].dlc_path);
         runtimes[model].container = loadContainerFromVector(runtimes[model].dlc_buff);
 
         #ifdef DEBUG
@@ -510,13 +575,41 @@ std::string intialize_model_runtime(
         bool useUserSuppliedBuffers = true;
         bool useCaching = false;
         bool cpuFixedPointMode = false;
-        runtimes[model].snpe = setBuilderOptions_ex(
-            runtimes[model].container,
-            runtimes[model].runtime,
-            runtimes[model].runtimeList,
-            useUserSuppliedBuffers,
-            runtimes[model].platformConfig,
-            useCaching, cpuFixedPointMode);
+        if (model.find("P1_1_reshaped_layer_") == std::string::npos) {
+            std::cout << "case 1\n";
+            runtimes[model].snpe = setBuilderOptions_ex(
+                runtimes[model].container,
+                runtimes[model].runtime,
+                runtimes[model].runtimeList,
+                useUserSuppliedBuffers,
+                runtimes[model].platformConfig,
+                useCaching, cpuFixedPointMode);
+        } else {
+            // adding the setOutputLine b/c P1 has multiple outputs
+            std::cout << "case 2\n";
+            /* NOTE!!! NEED TO MAKE SURE THIS ORDER MATCHES WHAT IS ACTUALLY HAPPENING */
+            std::vector<std::string> outputNames = {
+                "query_states:0",
+                "key_states:0",
+                "value_states:0",
+                "fc1_out:0"
+                // "key_states:0",
+                // "query_states:0",
+                // "value_states:0",
+                // "fc1_out:0"
+            };
+            runtimes[model].snpe = setBuilderOptions_ex_multipleOuts(
+                runtimes[model].container,
+                runtimes[model].runtime,
+                runtimes[model].runtimeList,
+                useUserSuppliedBuffers,
+                runtimes[model].platformConfig,
+                useCaching, 
+                cpuFixedPointMode,
+                outputNames);
+
+            std::cout << "pointer of runtimes[model].snpe " << runtimes[model].snpe.get() << "\n";
+        }
         
         
 
@@ -525,6 +618,7 @@ std::string intialize_model_runtime(
     //     runtimes[str].outputMap = zdl::DlSystem::UserBufferMap();
 
         runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
+        
         std::cout << "finished with StringListToVector\n";
         runtimes[model].output_names = StringListToVector(runtimes[model].snpe->getOutputTensorNames());
         std::cout << "finished with StringListToVector\n";

@@ -74,6 +74,141 @@ void printV(const std::string& str, const std::vector<T>& vec) {
 }
 
 
+template <typename T>
+void printTensorNoName(const T* tensor, const std::vector<size_t> shape, size_t depth = 0, size_t offset = 0) {
+    size_t current_dim = shape[depth];
+    if (depth == shape.size() - 1) {
+        for (size_t i = 0; i < std::min<size_t>(3, current_dim); ++i) {
+            std::cout << std::setw(4) << tensor[offset + i];
+            if (i < std::min<size_t>(3, current_dim) - 1) std::cout << ", ";
+        }
+        if (current_dim > 6) std::cout << ", ..., ";
+        for (size_t i = std::max<size_t>(3, current_dim - 3); i < current_dim; ++i) {
+            std::cout << std::setw(4) << tensor[offset + i];
+            if (i < current_dim - 1) std::cout << ", ";
+        }
+    } else {
+        std::cout << "{";
+        for (size_t i = 0; i < std::min<size_t>(3, current_dim); ++i) {
+            printTensorNoName(tensor, shape, depth + 1, offset + i * shape[depth + 1]);
+            if (i < std::min<size_t>(3, current_dim) - 1) std::cout << ", ";
+        }
+        if (current_dim > 6) std::cout << ", ..., ";
+        for (size_t i = std::max<size_t>(3, current_dim - 3); i < current_dim; ++i) {
+            printTensorNoName(tensor, shape, depth + 1, offset + i * shape[depth + 1]);
+            if (i < current_dim - 1) std::cout << ", ";
+        }
+        std::cout << "}";
+    }
+}
+
+#define PRINT_SIZE 3
+
+template <typename T>
+void printTensor2(const T* tensor, const std::vector<size_t>& shape) {
+    size_t shape_size = 2;
+    size_t offset = 1;
+    for (size_t i = 1; i < shape.size(); i++) { offset *= shape[i]; }
+    assert(shape.size() == shape_size);
+
+    if (shape.end()[-shape_size] <= 2*PRINT_SIZE) {
+        assert(shape.end()[-shape_size] >= 2*PRINT_SIZE);
+        for (size_t i = 0; i < shape.end()[-shape_size]; i++) {
+            std::cout << "[";
+            // print first
+            for (size_t j = 0; j < PRINT_SIZE; j++) {
+                std::cout << tensor[i*offset + j] << ",";
+            }
+            std::cout << " ..., ";
+            // print last
+            for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
+                std::cout << tensor[i*offset + j] << ",";
+            }
+            std::cout << "],\n";
+        }
+    }
+    else {
+        assert(shape.end()[-shape_size] >= 2*PRINT_SIZE);
+        std::cout << "[\n";
+        for (size_t i = 0; i < PRINT_SIZE; i++) {
+            std::cout << "[";
+            // print first
+            for (size_t j = 0; j < PRINT_SIZE; j++) {
+                std::cout << tensor[i*offset + j] << ",";
+            }
+            std::cout << " ..., ";
+            // print last
+            for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
+                std::cout << tensor[i*offset + j] << ",";
+            }
+            std::cout << "],\n";
+        }
+
+        std::cout << "\n...\n";
+
+        for (size_t i = shape.end()[-shape_size] - PRINT_SIZE; i < shape.end()[-shape_size]; i++) {
+            std::cout << "[";
+            // print first
+            for (size_t j = 0; j < PRINT_SIZE; j++) {
+                std::cout << tensor[i*offset + j] << ",";
+            }
+            std::cout << " ..., ";
+            // print last
+            for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
+                std::cout << tensor[i*offset + j] << ",";
+            }
+            std::cout << "],\n";
+        }
+        std::cout << "]\n";
+    }
+}
+
+template <typename T>
+void printTensor(const std::string& name, const T* tensor, const std::vector<size_t> shape) {
+    printV(name, shape);
+    assert(shape.size() >= 2);
+    std::vector<size_t> shape_2d = {shape.end()[-2], shape.end()[-1]};
+    printTensor2(tensor, shape_2d);
+}
+
+
+
+// template <typename T>
+// void printTensor_unfinished(const T* tensor, const std::vector<size_t>& shape, size_t depth, size_t tot_offset=0) {
+//     size_t shape_size = 2;
+//     size_t offset = 1;
+//     for (size_t i = 1; i < shape.size(); i++) { offset *= shape[i]; }
+//     assert(shape.size() == shape_size);
+
+//     // base case
+//     if (depth == shape.size()) {
+
+//     }
+//     else if (shape.end()[-shape_size] <= 2*PRINT_SIZE) {
+//         for (size_t i = 0; i < shape.end()[-shape_size]; i++) {
+//             std::cout << "[";
+//             printTensor(tensor + tot_offset, shape, shape_size); // change
+//             std::cout << "],\n";
+//         }
+//     }
+//     else {
+//         std::cout << "[\n";
+//         for (size_t i = 0; i < PRINT_SIZE; i++) {
+//             std::cout << "[";
+//             printTensor(tensor + tot_offset, shape, shape_size); // change
+//             std::cout << "],\n";
+//         }
+//         std::cout << "\n...\n";
+//         for (size_t i = shape.end()[-shape_size] - PRINT_SIZE; i < shape.end()[-shape_size]; i++) {
+//             std::cout << "[";
+//             printTensor(tensor + tot_offset, shape, shape_size); // change
+//             std::cout << "],\n";
+//         }
+//         std::cout << "]\n";
+//     }
+// }
+
+
 
 // does not really work with every datatype
 // template <typename T>
@@ -118,6 +253,7 @@ void copyTensor(const T* ten1, T* out, const std::vector<size_t>& dims) {
         out[i] = ten1[i];
     }
 }
+
 
 void mySoftmax(const float* tensor, float* out, const std::vector<size_t>& dims) {
     int rank = dims.size();
@@ -189,68 +325,68 @@ void layernorm_Nd_32f(
     }
 }
 
-// not input-to-output safe
-void truncate_u8(
-    const uint8_t* input, const std::vector<size_t>& input_dims,
-    uint8_t* output, std::vector<size_t>& output_dims,
-    const std::vector<int>& dims_to_split,
-    const std::vector<int>& values,
-    const std::vector<int>& colon_lefts
-) {
-    // assertions
-    const size_t rank = input_dims.size();
-    assert(rank <= 4); // assume 4d or less
-    assert(values.size() <= rank);
-    assert(dims_to_split.size() == values.size() == colon_lefts.size());
-    assert(input != output);
-    for (int i = 0; i < values.size(); i++) {
-        assert(values[i] < input_dims[dims_to_split[i]]);
-    }
-    // indice computation
-    int indice_start[] = {0,0,0,0};
-    int indice_end[]   = {0,0,0,0}; // including
-    for (int i = 0; i < rank; i++) { indice_end[i] = input_dims[i] - 1; }
-    for (int i = 0; i < values.size(); i++) {
-        if (colon_lefts[i]) { indice_end[dims_to_split[i]] = values[i] - 1; }
-        else                { indice_start[dims_to_split[i]] = values[i]; }
-    }
+// // not input-to-output safe
+// void truncate_u8(
+//     const uint8_t* input, const std::vector<size_t>& input_dims,
+//     uint8_t* output, std::vector<size_t>& output_dims,
+//     const std::vector<int>& dims_to_split,
+//     const std::vector<int>& values,
+//     const std::vector<int>& colon_lefts
+// ) {
+//     // assertions
+//     const size_t rank = input_dims.size();
+//     assert(rank <= 4); // assume 4d or less
+//     assert(values.size() <= rank);
+//     assert(dims_to_split.size() == values.size() == colon_lefts.size());
+//     assert(input != output);
+//     for (int i = 0; i < values.size(); i++) {
+//         assert(values[i] < input_dims[dims_to_split[i]]);
+//     }
+//     // indice computation
+//     int indice_start[] = {0,0,0,0};
+//     int indice_end[]   = {0,0,0,0}; // including
+//     for (int i = 0; i < rank; i++) { indice_end[i] = input_dims[i] - 1; }
+//     for (int i = 0; i < values.size(); i++) {
+//         if (colon_lefts[i]) { indice_end[dims_to_split[i]] = values[i] - 1; }
+//         else                { indice_start[dims_to_split[i]] = values[i]; }
+//     }
 
-    #ifdef DEBUG
-        for (int i=0;i<4;i++) {std::cout << indice_start[i] << " ";}
-        for (int i=0;i<4;i++) {std::cout << indice_end[i] << " ";}
-    #endif
+//     #ifdef DEBUG
+//         for (int i=0;i<4;i++) {std::cout << indice_start[i] << " ";}
+//         for (int i=0;i<4;i++) {std::cout << indice_end[i] << " ";}
+//     #endif
 
-    // writing output
-    unsigned long long elements_written = 0;
-    unsigned long long dim_offsets[4] = {1, 1, 1, 1};
-    for (int i = rank - 2; i >= 0; i--) {
-        dim_offsets[i] = dim_offsets[i+1] * input_dims[i+1];
-    }
+//     // writing output
+//     unsigned long long elements_written = 0;
+//     unsigned long long dim_offsets[4] = {1, 1, 1, 1};
+//     for (int i = rank - 2; i >= 0; i--) {
+//         dim_offsets[i] = dim_offsets[i+1] * input_dims[i+1];
+//     }
 
-    #ifdef DEBUG
-        std::cout << "\ttruncation(): about to enter quad for-loop\n";
-    #endif
+//     #ifdef DEBUG
+//         std::cout << "\ttruncation(): about to enter quad for-loop\n";
+//     #endif
 
-    for (int a = indice_start[0]; a <= indice_end[0]; a++) {
-        for (int b = indice_start[1]; b <= indice_end[1]; b++) {
-            for (int c = indice_start[2]; c <= indice_end[2]; c++) {
-                for (int d = indice_start[3]; d <= indice_end[3]; d++) {
-                    output[elements_written] = input[
-                        d + 
-                        c*dim_offsets[2] +
-                        b*dim_offsets[1] +
-                        a*dim_offsets[0]];
-                    elements_written++;
-                }
-            }
-        }
-    }
-    // writing output_dims
-    output_dims = std::vector<size_t>();
-    for (int i = 0; i < input_dims.size(); i++) {
-        output_dims.push_back(indice_end[i]+1 - indice_start[i]);
-    }
-}
+//     for (int a = indice_start[0]; a <= indice_end[0]; a++) {
+//         for (int b = indice_start[1]; b <= indice_end[1]; b++) {
+//             for (int c = indice_start[2]; c <= indice_end[2]; c++) {
+//                 for (int d = indice_start[3]; d <= indice_end[3]; d++) {
+//                     output[elements_written] = input[
+//                         d + 
+//                         c*dim_offsets[2] +
+//                         b*dim_offsets[1] +
+//                         a*dim_offsets[0]];
+//                     elements_written++;
+//                 }
+//             }
+//         }
+//     }
+//     // writing output_dims
+//     output_dims = std::vector<size_t>();
+//     for (int i = 0; i < input_dims.size(); i++) {
+//         output_dims.push_back(indice_end[i]+1 - indice_start[i]);
+//     }
+// }
 
 
 // not input-to-output safe
@@ -311,30 +447,85 @@ void truncate(
     }
 }
 
-void mul_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::vector<size_t>& dims) {
+// void mul_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::vector<size_t>& dims) {
+//     size_t num_elem = 1;
+//     for (size_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+//     for (size_t i = 0; i < num_elem; i++) {
+//         out[i] = ten1[i] * ten2[i];
+//     }
+// }
+
+template <typename T>
+void mul(const T* ten1, const T* ten2, T* out, const std::vector<size_t>& dims) {
     size_t num_elem = 1;
-    for (size_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+    for (size_t i = 0; i < dims.size(); i++) { num_elem *= dims[i]; }
+    // std::cout << "\t\t multiplication num_elem: " << num_elem << "\n";
     for (size_t i = 0; i < num_elem; i++) {
         out[i] = ten1[i] * ten2[i];
     }
 }
 
-void add_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::vector<size_t>& dims) {
+// void add_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::vector<size_t>& dims) {
+//     size_t num_elem = 1;
+//     for (size_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+//     for (size_t i = 0; i < num_elem; i++) {
+//         out[i] = ten1[i] + ten2[i];
+//     }
+// }
+
+template <typename T>
+void add(const T* ten1, const T* ten2, T* out, const std::vector<size_t>& dims) {
     size_t num_elem = 1;
-    for (size_t i = 0; i < dims.size(); i++) { num_elem *= i; }
+    for (size_t i = 0; i < dims.size(); i++) { num_elem *= dims[i]; }
     for (size_t i = 0; i < num_elem; i++) {
         out[i] = ten1[i] + ten2[i];
     }
 }
 
 // IMPORTANT NOTE: IGNORING FOR NOW WHEN SEQ_LEN GETS BIG
-void rotary_emb_u8(
-    const uint8_t* x, const std::vector<size_t>& x_dims,
+// void rotary_emb_u8(
+//     const uint8_t* x, const std::vector<size_t>& x_dims,
+//     const int seq_len,
+//     const uint8_t* sin_cached, const std::vector<size_t>& sin_cached_dims,
+//     const uint8_t* cos_cached, const std::vector<size_t>& cos_cached_dims,
+//     uint8_t* sin, std::vector<size_t>& sin_dims,
+//     uint8_t* cos, std::vector<size_t>& cos_dims
+// ) {
+//     assert(seq_len <= SIN_COS_MAX_SEQ_LEN); // TEMP solution
+//     assert(sin_cached_dims.size() == cos_cached_dims.size());
+//     for (int i = 0; i < sin_cached_dims.size(); i++) {
+//         // idk if this needs to be true, but if it does not, change code below
+//         assert(sin_cached_dims[i] == cos_cached_dims[i]);
+//     }
+//     std::vector<int> dims_to_split = {0};
+//     std::vector<int> values = {seq_len};
+//     std::vector<int> colon_lefts = {1};
+//     std::cout << "\tCalling truncate()\n";
+//     printV("x", x_dims);
+//     std::cout << "\tseq_len in truncate: " << seq_len << "\n";
+//     truncate_u8(
+//         cos_cached, cos_cached_dims, cos, cos_dims, 
+//         dims_to_split, // outer dim
+//         values,
+//         colon_lefts
+//     );
+//     truncate_u8(
+//         sin_cached, sin_cached_dims, sin, sin_dims, 
+//         dims_to_split, // outer dim
+//         values,
+//         colon_lefts
+//     );
+// }
+
+// IMPORTANT NOTE: IGNORING FOR NOW WHEN SEQ_LEN GETS BIG
+template <typename T>
+void rotary_emb(
+    const T* x, const std::vector<size_t>& x_dims,
     const int seq_len,
-    const uint8_t* sin_cached, const std::vector<size_t>& sin_cached_dims,
-    const uint8_t* cos_cached, const std::vector<size_t>& cos_cached_dims,
-    uint8_t* sin, std::vector<size_t>& sin_dims,
-    uint8_t* cos, std::vector<size_t>& cos_dims
+    const T* sin_cached, const std::vector<size_t>& sin_cached_dims,
+    const T* cos_cached, const std::vector<size_t>& cos_cached_dims,
+    T* sin, std::vector<size_t>& sin_dims,
+    T* cos, std::vector<size_t>& cos_dims
 ) {
     assert(seq_len <= SIN_COS_MAX_SEQ_LEN); // TEMP solution
     assert(sin_cached_dims.size() == cos_cached_dims.size());
@@ -348,13 +539,13 @@ void rotary_emb_u8(
     std::cout << "\tCalling truncate()\n";
     printV("x", x_dims);
     std::cout << "\tseq_len in truncate: " << seq_len << "\n";
-    truncate_u8(
+    truncate(
         cos_cached, cos_cached_dims, cos, cos_dims, 
         dims_to_split, // outer dim
         values,
         colon_lefts
     );
-    truncate_u8(
+    truncate(
         sin_cached, sin_cached_dims, sin, sin_dims, 
         dims_to_split, // outer dim
         values,
@@ -362,10 +553,39 @@ void rotary_emb_u8(
     );
 }
 
-void gather_u8(
-    const uint8_t* x, const std::vector<size_t>& x_dims,
+// void gather_u8(
+//     const uint8_t* x, const std::vector<size_t>& x_dims,
+//     const std::vector<int>& indices,
+//     uint8_t* out, std::vector<size_t>& out_dims
+// ) {
+//     // offset computation
+//     int rank = x_dims.size();
+//     assert(rank <= 4);
+//     unsigned long long dim_offsets[4] = {1, 1, 1, 1};
+//     for (int i = rank - 2; i >= 0; i--) {
+//         dim_offsets[i] = dim_offsets[i+1] * x_dims[i+1];
+//     }
+//     unsigned long long offset = dim_offsets[0];
+//     std::cout << "writing data\n";
+//     // writing to out
+//     for (int i = 0; i < indices.size(); i++) {
+//         for (int j = 0; j < offset; j++) {
+//             out[i*offset + j] = x[indices[i]*offset + j];
+//         }
+//     }
+//     // writing out_dims
+//     out_dims = std::vector<size_t>();
+//     out_dims.push_back(indices.size());
+//     for (int i = 1; i < rank; i++) {
+//         out_dims.push_back(x_dims[i]);
+//     }
+// }
+
+template <typename T>
+void gather(
+    const T* x, const std::vector<size_t>& x_dims,
     const std::vector<int>& indices,
-    uint8_t* out, std::vector<size_t>& out_dims
+    T* out, std::vector<size_t>& out_dims
 ) {
     // offset computation
     int rank = x_dims.size();
@@ -390,12 +610,12 @@ void gather_u8(
     }
 }
 
-
-void concat_u8(
-    const uint8_t* x1, const std::vector<size_t>& x1_dims,
-    const uint8_t* x2, const std::vector<size_t>& x2_dims,
+template <typename T>
+void concat(
+    const T* x1, const std::vector<size_t>& x1_dims,
+    const T* x2, const std::vector<size_t>& x2_dims,
     const int axis,
-    uint8_t* out, std::vector<size_t>& out_dims
+    T* out, std::vector<size_t>& out_dims
 ) {
     // assertions
     assert((out != x1) && (out != x2));
@@ -466,15 +686,53 @@ void concat_u8(
     }
 }
 
-void rotate_half_u8(
-    const uint8_t* x, const std::vector<size_t>& x_dims,
-    uint8_t* out, std::vector<size_t>& out_dims
+// void rotate_half_u8(
+//     const uint8_t* x, const std::vector<size_t>& x_dims,
+//     uint8_t* out, std::vector<size_t>& out_dims
+// ) {
+//     // internal buffers
+//     // uint8_t x1[QUERY_STATES_BUFF_SIZE];
+//     uint8_t* x1 = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
+//     // uint8_t x2[QUERY_STATES_BUFF_SIZE];
+//     uint8_t* x2 = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
+//     std::vector<size_t> x1_dims, x2_dims;
+
+//     int x1_len = x_dims.end()[-1] / 2;
+//     std::vector<int> dims_to_split = {(int)x_dims.size()-1};
+//     std::vector<int> values = {x1_len};
+//     std::vector<int> colon_left = {1};
+//     std::vector<int> colon_right = {0};
+//     truncate_u8(
+//         x, x_dims, x1, x1_dims, dims_to_split,
+//         values, colon_left
+//     );
+//     truncate_u8(
+//         x, x_dims, x2, x2_dims, dims_to_split,
+//         values, colon_right
+//     );
+//     std::cout << "\t\tfinished both truncate()s in rotate_half()\n";
+//     // negate x2
+//     unsigned long long x2_size = 1;
+//     for (auto i : x2_dims) { x2_size *= i; }
+//     for (int i = 0; i < x2_size; i++) {x2[i] = -1 * x2[i];}
+//     // concat
+//     std::cout << "\t\tCalling concat()\n";
+//     concat_u8(x1, x1_dims, x2, x2_dims, int(x1_dims.size()-1), out, out_dims);
+//     std::cout << "\t\tfreeing memory\n";
+//     free(x1);
+//     free(x2);
+// }
+
+template <typename T>
+void rotate_half(
+    const T* x, const std::vector<size_t>& x_dims,
+    T* out, std::vector<size_t>& out_dims
 ) {
     // internal buffers
-    // uint8_t x1[QUERY_STATES_BUFF_SIZE];
-    uint8_t* x1 = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
-    // uint8_t x2[QUERY_STATES_BUFF_SIZE];
-    uint8_t* x2 = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
+    // T x1[QUERY_STATES_BUFF_SIZE];
+    T* x1 = (T*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(T));
+    // T x2[QUERY_STATES_BUFF_SIZE];
+    T* x2 = (T*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(T));
     std::vector<size_t> x1_dims, x2_dims;
 
     int x1_len = x_dims.end()[-1] / 2;
@@ -482,11 +740,11 @@ void rotate_half_u8(
     std::vector<int> values = {x1_len};
     std::vector<int> colon_left = {1};
     std::vector<int> colon_right = {0};
-    truncate_u8(
+    truncate(
         x, x_dims, x1, x1_dims, dims_to_split,
         values, colon_left
     );
-    truncate_u8(
+    truncate(
         x, x_dims, x2, x2_dims, dims_to_split,
         values, colon_right
     );
@@ -497,39 +755,133 @@ void rotate_half_u8(
     for (int i = 0; i < x2_size; i++) {x2[i] = -1 * x2[i];}
     // concat
     std::cout << "\t\tCalling concat()\n";
-    concat_u8(x1, x1_dims, x2, x2_dims, int(x1_dims.size()-1), out, out_dims);
+    // concat(x1, x1_dims, x2, x2_dims, int(x1_dims.size()-1), out, out_dims); // i believe this is wrong
+    concat(x2, x2_dims, x1, x1_dims, int(x1_dims.size()-1), out, out_dims);
     std::cout << "\t\tfreeing memory\n";
     free(x1);
     free(x2);
 }
 
+// // SUGGESTION: unquantize the multiplication and addition inside
+// void apply_rotary_pos_emb_u8(
+//     const uint8_t* q, const std::vector<size_t>& q_dims,
+//     const uint8_t* k, const std::vector<size_t>& k_dims,
+//     const uint8_t* cos, const std::vector<size_t>& cos_dims,
+//     const uint8_t* sin, const std::vector<size_t>& sin_dims,
+//     const std::vector<int>& position_ids, const int unsqueeze_dim,
+//     uint8_t* q_embed, std::vector<size_t>& q_embed_dims,
+//     uint8_t* k_embed, std::vector<size_t>& k_embed_dims
+// ) {
+//     // buffers prbably dont need to be this big
+//     // uint8_t cos_buff[SIN_COS_BUFF_SIZE];
+//     uint8_t* cos_buff = (uint8_t*)malloc(SIN_COS_BUFF_SIZE * sizeof(uint8_t));
+//     // uint8_t sin_buff[SIN_COS_BUFF_SIZE];
+//     uint8_t* sin_buff = (uint8_t*)malloc(SIN_COS_BUFF_SIZE * sizeof(uint8_t));
+//     std::vector<size_t> cos_buff_dims, sin_buff_dims;
+//     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
+//     std::cout << "cos[0]: " << cos[0] << "\n";
+//     printV("cos_dims", cos_dims);
+//     for (auto i : position_ids) {std::cout << i << ", ";}
+//     std::cout << "\n";
+//     gather_u8(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
+//     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
+//     gather_u8(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
+//     std::cout << "unsqueeze_dim: " << unsqueeze_dim << "\n";
+//     cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
+//     sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1);
+//     printV("cos_buff_dims", cos_buff_dims);
+//     printV("q_dims", q_dims);
+//     printV("k_dims", k_dims);
+//     // computing embedding
+//     // assume the last 2 dims are the same size for q and cos
+//     assert(cos_buff_dims.end()[-1] == q_dims.end()[-1]);
+//     assert(cos_buff_dims.end()[-1] == k_dims.end()[-1]);
+//     // assert(q_dims.end()[-2] == cos_buff_dims.end()[-2] == k_dims.end()[-2]);
+//     assert(q_dims.end()[-2] == k_dims.end()[-2]);
+//     int q_rank = q_dims.size();
+//     assert(q_rank <= 4);
+//     unsigned long long q_dim_offsets[4] = {1, 1, 1, 1};
+//     for (int i = q_rank - 2; i >= 0; i--) {
+//         q_dim_offsets[i] = q_dim_offsets[i+1] * q_dims[i+1]; //ugly fix
+//     }
+//     assert(q_dims[0] == k_dims[0]); // we can adjust if this needs to be false
+//     assert(q_dims[1] == k_dims[1]); // would need to create another collection of for loops
+//     std::cout << "\tallocating interal buffers of k and q\n";
+//     // uint8_t q_temp_buff[QUERY_STATES_BUFF_SIZE];
+//     uint8_t* q_temp_buff = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
+//     // uint8_t k_temp_buff[QUERY_STATES_BUFF_SIZE];
+//     uint8_t* k_temp_buff = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
+//     std::cout << "\tCalling Multiply Loop\n";
+//     for (int i = 0; i < q_dims[0]; i++) {
+//         for (int j = 0; j < q_dims[1]; j++) {
+//             mul_u8(
+//                 &(q[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff, 
+//                 q_temp_buff, cos_buff_dims);
+//             mul_u8(
+//                 &(k[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff,
+//                 k_temp_buff, cos_buff_dims);
+//         }
+//     }
+//     std::cout << "\tCalling Rotate_Half\n";
+//     rotate_half_u8(q, q_dims, q_embed, q_embed_dims); // this might cause problems with the outdims
+//     std::cout << "\tCalling Rotate_Half\n";
+//     printV("k_dims", k_dims);
+//     rotate_half_u8(k, k_dims, k_embed, k_embed_dims); // rotate_half() intializes dims
+//     std::cout << "\tCalling Mutliply Loop\n";
+//     for (int i = 0; i < q_dims[0]; i++) {
+//         for (int j = 0; j < q_dims[1]; j++) {
+//             mul_u8(
+//                 &(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff, 
+//                 q_embed, sin_buff_dims);
+//             mul_u8(
+//                 &(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff, 
+//                 k_embed, sin_buff_dims);
+//         }
+//     }
+//     std::cout << "\tCalling add_32f\n";
+//     add_u8(q_embed, q_temp_buff, q_embed, q_embed_dims);
+//     std::cout << "\tCalling add_32f\n";
+//     add_u8(k_embed, k_temp_buff, k_embed, k_embed_dims);
+//     //free
+//     free(cos_buff);
+//     free(sin_buff);
+// }
+
 // SUGGESTION: unquantize the multiplication and addition inside
-void apply_rotary_pos_emb_u8(
-    const uint8_t* q, const std::vector<size_t>& q_dims,
-    const uint8_t* k, const std::vector<size_t>& k_dims,
-    const uint8_t* cos, const std::vector<size_t>& cos_dims,
-    const uint8_t* sin, const std::vector<size_t>& sin_dims,
+template <typename T>
+void apply_rotary_pos_emb(
+    const T* q, const std::vector<size_t>& q_dims,
+    const T* k, const std::vector<size_t>& k_dims,
+    const T* cos, const std::vector<size_t>& cos_dims,
+    const T* sin, const std::vector<size_t>& sin_dims,
     const std::vector<int>& position_ids, const int unsqueeze_dim,
-    uint8_t* q_embed, std::vector<size_t>& q_embed_dims,
-    uint8_t* k_embed, std::vector<size_t>& k_embed_dims
+    T* q_embed, std::vector<size_t>& q_embed_dims,
+    T* k_embed, std::vector<size_t>& k_embed_dims
 ) {
     // buffers prbably dont need to be this big
-    // uint8_t cos_buff[SIN_COS_BUFF_SIZE];
-    uint8_t* cos_buff = (uint8_t*)malloc(SIN_COS_BUFF_SIZE * sizeof(uint8_t));
-    // uint8_t sin_buff[SIN_COS_BUFF_SIZE];
-    uint8_t* sin_buff = (uint8_t*)malloc(SIN_COS_BUFF_SIZE * sizeof(uint8_t));
+    // T cos_buff[SIN_COS_BUFF_SIZE];
+    T* cos_buff = (T*)malloc(SIN_COS_BUFF_SIZE * sizeof(T));
+    // T sin_buff[SIN_COS_BUFF_SIZE];
+    T* sin_buff = (T*)malloc(SIN_COS_BUFF_SIZE * sizeof(T));
     std::vector<size_t> cos_buff_dims, sin_buff_dims;
     std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
     std::cout << "cos[0]: " << cos[0] << "\n";
     printV("cos_dims", cos_dims);
-    for (auto i : position_ids) {std::cout << i << ", ";}
+    printV("position ids", position_ids);
     std::cout << "\n";
-    gather_u8(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
-    std::cout << "\tCalling gather() with position_ids len: "<<position_ids.size()<<"\n";
-    gather_u8(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
+    gather(cos, cos_dims, position_ids, cos_buff, cos_buff_dims);
+    printTensor("cos after gather", cos_buff, cos_buff_dims);
+    gather(sin, sin_dims, position_ids, sin_buff, sin_buff_dims);
     std::cout << "unsqueeze_dim: " << unsqueeze_dim << "\n";
-    cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
-    sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1);
+    { 
+        // this is may be incorrect
+        cos_buff_dims.insert(cos_buff_dims.begin() + 0, BATCH_SIZE);
+        sin_buff_dims.insert(sin_buff_dims.begin() + 0, BATCH_SIZE);
+    }
+    cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1); // unsure if correct
+    sin_buff_dims.insert(sin_buff_dims.begin() + unsqueeze_dim, 1); // unsure if correct
+    // cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
+    // cos_buff_dims.insert(cos_buff_dims.begin() + unsqueeze_dim, 1);
     printV("cos_buff_dims", cos_buff_dims);
     printV("q_dims", q_dims);
     printV("k_dims", k_dims);
@@ -541,56 +893,118 @@ void apply_rotary_pos_emb_u8(
     assert(q_dims.end()[-2] == k_dims.end()[-2]);
     int q_rank = q_dims.size();
     assert(q_rank <= 4);
-    unsigned long long q_dim_offsets[4] = {1, 1, 1, 1};
+    std::vector<size_t> q_dim_offsets = {1, 1, 1, 1};
     for (int i = q_rank - 2; i >= 0; i--) {
         q_dim_offsets[i] = q_dim_offsets[i+1] * q_dims[i+1]; //ugly fix
     }
     assert(q_dims[0] == k_dims[0]); // we can adjust if this needs to be false
     assert(q_dims[1] == k_dims[1]); // would need to create another collection of for loops
     std::cout << "\tallocating interal buffers of k and q\n";
-    // uint8_t q_temp_buff[QUERY_STATES_BUFF_SIZE];
-    uint8_t* q_temp_buff = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
-    // uint8_t k_temp_buff[QUERY_STATES_BUFF_SIZE];
-    uint8_t* k_temp_buff = (uint8_t*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(uint8_t));
+    // T q_temp_buff[QUERY_STATES_BUFF_SIZE];
+    T* q_temp_buff = (T*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(T));
+    // T k_temp_buff[QUERY_STATES_BUFF_SIZE];
+    T* k_temp_buff = (T*)malloc(QUERY_STATES_BUFF_SIZE * sizeof(T));
     std::cout << "\tCalling Multiply Loop\n";
-    for (int i = 0; i < q_dims[0]; i++) {
-        for (int j = 0; j < q_dims[1]; j++) {
-            mul_u8(
+    printV("cos_buff_dims", cos_buff_dims);
+    printV("q_dims:", q_dims);
+    printV("q_dim_offsets", q_dim_offsets);
+    printTensor("query right before multiplication", q, q_dims);
+    printTensor("cos_buff right before multiplication", cos_buff, cos_buff_dims);
+    printTensor("q * cos BEFORE", q_temp_buff, q_dims);
+    for (size_t i = 0; i < q_dims[0]; i++) {
+        for (size_t j = 0; j < q_dims[1]; j++) {
+            // std::cout << "i : " << i << ", j: " << j << "\n";
+            mul(
                 &(q[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff, 
-                q_temp_buff, cos_buff_dims);
-            mul_u8(
+                &(q_temp_buff[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff_dims);
+            if (j ==1 ) { std::cout << "FIRST VALUE:" << q_temp_buff[0] << "\n";}
+            mul(
                 &(k[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff,
-                k_temp_buff, cos_buff_dims);
+                &(k_temp_buff[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff_dims);
+            if (j ==1 ) { std::cout << "FIRST VALUE:" << q_temp_buff[0] << "\n";}
         }
     }
-    std::cout << "\tCalling Rotate_Half\n";
-    rotate_half_u8(q, q_dims, q_embed, q_embed_dims); // this might cause problems with the outdims
-    std::cout << "\tCalling Rotate_Half\n";
+    printTensor("q * cos", q_temp_buff, q_dims);
+    printTensor("q before rotate half", q, q_dims);
+    rotate_half(q, q_dims, q_embed, q_embed_dims); // this might cause problems with the outdims
+    printTensor("q after rotate half", q_embed, q_embed_dims);
     printV("k_dims", k_dims);
-    rotate_half_u8(k, k_dims, k_embed, k_embed_dims); // rotate_half() intializes dims
+    printTensor("k before rotate half", k, k_dims);
+    rotate_half(k, k_dims, k_embed, k_embed_dims); // rotate_half() intializes dims
+    printTensor("k after rotate half", k_embed, k_embed_dims);
     std::cout << "\tCalling Mutliply Loop\n";
     for (int i = 0; i < q_dims[0]; i++) {
         for (int j = 0; j < q_dims[1]; j++) {
-            mul_u8(
+            mul(
                 &(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff, 
-                q_embed, sin_buff_dims);
-            mul_u8(
+                &(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff_dims);
+            mul(
                 &(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff, 
-                k_embed, sin_buff_dims);
+                &(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff_dims);
         }
     }
+    printTensor("(rotate_half(q) * sin)", q_embed, q_embed_dims);
     std::cout << "\tCalling add_32f\n";
-    add_u8(q_embed, q_temp_buff, q_embed, q_embed_dims);
+    add(q_embed, q_temp_buff, q_embed, q_embed_dims);
     std::cout << "\tCalling add_32f\n";
-    add_u8(k_embed, k_temp_buff, k_embed, k_embed_dims);
+    add(k_embed, k_temp_buff, k_embed, k_embed_dims);
     //free
     free(cos_buff);
     free(sin_buff);
 }
 
+// void transpose_u8(
+//     const uint8_t* tensor, uint8_t* out, const std::vector<size_t>& perm,
+//     const std::vector<size_t>& tensor_dims, std::vector<size_t>& out_dims
+// ) {
+//     // not safe to do inplace
+//     assert(tensor != out);
+//     int rank = tensor_dims.size();
+//     assert(rank == 4);
+//     // set out_dims
+//     out_dims.resize(4);
+//     for (size_t i = 0; i < 4; i++) {
+//         out_dims[i] = tensor_dims[perm[i]];
+//     }
+//     // code
+//     int num_elements;
+//     std::vector<int> old_indices(4);
+//     std::vector<int> new_indices(4);
+//     std::vector<int> dim_offsets = {1,1,1,1};
+//     for (int i = rank - 2; i >= 0; i--) {
+//         dim_offsets[i] = dim_offsets[i+1] * tensor_dims[i+1];
+//     }
+//     num_elements = dim_offsets[0];
+//     // out_dim stuff
+//     std::vector<int> out_dim_offsets = {1,1,1,1};
+//     for (int i = rank - 2; i >= 0; i--) {
+//         out_dim_offsets[i] = out_dim_offsets[i+1] * out_dims[i+1];
+//     }
+    
+//     for (int i = 0; i < num_elements; i++) {
+//         // get old indices
+//         size_t index = i;
+//         for (int j = 0; j < 4; j++) {
+//             old_indices[j] = index / dim_offsets[j];
+//             index = index % dim_offsets[j];
+//         }
+//         // get new indices
+//         for (int j = 0; j < 4; j++) {
+//             new_indices[j] = old_indices[perm[j]];
+//         }
+//         // write data
+//         out[
+//             new_indices[0] +
+//             new_indices[1] * out_dim_offsets[1] +
+//             new_indices[2] * out_dim_offsets[2] +
+//             new_indices[3] * out_dim_offsets[3]
+//         ] = tensor[i];
+//     }
+// }
 
-void transpose_u8(
-    const uint8_t* tensor, uint8_t* out, const std::vector<size_t>& perm,
+template <typename T>
+void transpose(
+    const T* tensor, T* out, const std::vector<size_t>& perm,
     const std::vector<size_t>& tensor_dims, std::vector<size_t>& out_dims
 ) {
     // not safe to do inplace
@@ -646,25 +1060,26 @@ void transpose_u8(
 // tot_seq_len: 11 - 12
 
 // since using a large buffer for as a temp buff, could optimize by removing
+template <typename T>
 void DynamicTruncationAndConcatentation(
     size_t seq_len,
-    std::vector<uint8_t>& temp_buff,
-    uint8_t* query_states, // (1, 32, 11, 80) - (1, 32, 1, 80)
-    uint8_t* key_states, // same as q
-    uint8_t* value_states, // same as q
-    // uint8_t* q_out, // (1, 32, 11, 80) - (1, 32, 1, 80)
-    // uint8_t* k_out, // (1, 32, 12, 80) - (1, 32, 12, 80)
-    // uint8_t* v_out, // (1, 32, 12, 80) - (1, 32, 12, 80)
-    const uint8_t* sin_cached, // (11, 32) - (12, 32)
-    const uint8_t* cos_cached,
-    uint8_t* sin_buff,
-    uint8_t* cos_buff,
-    uint8_t* key_cache, // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
-    uint8_t* value_cache, // same as key_cache
-    uint8_t* query_rot_buff,
-    uint8_t* query_pass_buff,
-    uint8_t* key_rot_buff,
-    uint8_t* key_pass_buff,
+    T* temp_buff, // buff_8
+    T* query_states, // (1, 32, 11, 80) - (1, 32, 1, 80)
+    T* key_states, // same as q
+    T* value_states, // same as q
+    // T* q_out, // (1, 32, 11, 80) - (1, 32, 1, 80)
+    // T* k_out, // (1, 32, 12, 80) - (1, 32, 12, 80)
+    // T* v_out, // (1, 32, 12, 80) - (1, 32, 12, 80)
+    const T* sin_cached, // (11, 32) - (12, 32)
+    const T* cos_cached,
+    T* sin_buff,
+    T* cos_buff,
+    T* key_cache, // (1, 32, 0, 80)<basically 0> - (1, 32, 11, 80)
+    T* value_cache, // same as key_cache
+    T* query_rot_buff,
+    T* query_pass_buff,
+    T* key_rot_buff,
+    T* key_pass_buff,
     std::vector<size_t>& query_shape,
     std::vector<size_t>& key_shape,
     std::vector<size_t>& value_shape,
@@ -698,21 +1113,25 @@ void DynamicTruncationAndConcatentation(
     query_shape = {1, seq_len, 32, 80};
     key_shape   = {1, seq_len, 32, 80};
     value_shape = {1, seq_len, 32, 80};
+
+    printTensor("query after reshape", query_states, query_shape);
+    printTensor("key after reshape", key_states, key_shape);
+    printTensor("value after reshape", value_states, value_shape);
     
     // transpose
     std::vector<size_t> temp_shape;
     // query
-    transpose_u8(query_states, temp_buff.data(), {0, 2, 1, 3}, query_shape, temp_shape);
+    transpose(query_states, temp_buff, {0, 2, 1, 3}, query_shape, temp_shape);
     query_shape = temp_shape;
-    copyTensor(temp_buff.data(), query_states, query_shape);
+    copyTensor(temp_buff, query_states, query_shape);
     // key
-    transpose_u8(key_states, temp_buff.data(), {0, 2, 1, 3}, key_shape, temp_shape);
+    transpose(key_states, temp_buff, {0, 2, 1, 3}, key_shape, temp_shape);
     key_shape = temp_shape;
-    copyTensor(temp_buff.data(), key_states, key_shape);
+    copyTensor(temp_buff, key_states, key_shape);
     // value
-    transpose_u8(value_states, temp_buff.data(), {0, 2, 1, 3}, value_shape, temp_shape);
+    transpose(value_states, temp_buff, {0, 2, 1, 3}, value_shape, temp_shape);
     value_shape = temp_shape;
-    copyTensor(temp_buff.data(), value_states, value_shape);
+    copyTensor(temp_buff, value_states, value_shape);
 
     // implement kv stuff
     size_t kv_seq_len = key_shape.end()[-2];
@@ -720,37 +1139,45 @@ void DynamicTruncationAndConcatentation(
         kv_seq_len += key_cache_shape.end()[-3]; // modified
         // kv_seq_len = tot_seq_len
     }
-     
+
+    printTensor("cos before rotary_emb", cos_cached, {11, 32});
+    printTensor("sin before rotary_emb", sin_cached, {11, 32});
+
     // rotary emb
-    rotary_emb_u8(
+    rotary_emb(
         value_states, value_shape, kv_seq_len,
         sin_cached, sin_cached_shape, cos_cached, cos_cached_shape,
         sin_buff, sin_shape, cos_buff, cos_shape
     );
 
+
+    printTensor("cos after rotary_emb", cos_buff, cos_shape);
+    printTensor("sin after rotary_emb", sin_buff, sin_shape);
+
+
     // partial rotary embedding truncation
-    truncate_u8(
+    truncate(
         query_states, query_shape,
         query_rot_buff, query_rot_buff_dims, 
         std::vector<int> {int(query_shape.size())-1},
         std::vector<int> {rotary_emb_dim},
         std::vector<int> {1}
     );
-    truncate_u8(
+    truncate(
         query_states, query_shape,
         query_pass_buff, query_pass_buff_dims, 
         std::vector<int> {int(query_shape.size())-1},
         std::vector<int> {rotary_emb_dim},
         std::vector<int> {0}
     );
-    truncate_u8(
+    truncate(
         key_states, key_shape,
         key_rot_buff, key_rot_buff_dims, 
         std::vector<int> {int(key_shape.size())-1},
         std::vector<int> {rotary_emb_dim},
         std::vector<int> {1}
     );
-    truncate_u8(
+    truncate(
         key_states, key_shape,
         key_pass_buff, key_pass_buff_dims, 
         std::vector<int> {int(key_shape.size())-1},
@@ -758,22 +1185,34 @@ void DynamicTruncationAndConcatentation(
         std::vector<int> {0}
     );
 
+
+    printTensor("query_pass fter truncations", query_pass_buff, query_pass_buff_dims);
+    printTensor("key_pass fter truncations", key_pass_buff, key_pass_buff_dims);
+    
+
+    printTensor("query_rot_buff before apply_rotary_pos_emb", query_rot_buff, query_rot_buff_dims);
+    printTensor("key_rot_buff before apply_rotary_pos_emb", key_rot_buff, key_rot_buff_dims);
+
+
     // apply_rot_pos_emb
-    apply_rotary_pos_emb_u8(
+    apply_rotary_pos_emb(
         query_rot_buff, query_rot_buff_dims, key_rot_buff, key_rot_buff_dims,
         cos_buff, cos_shape, sin_buff, sin_shape, 
         position_ids, 1,
         query_rot_buff, query_rot_buff_dims, key_rot_buff, key_rot_buff_dims
     );
 
+    printTensor("query_rot_buff after apply_rotary_pos_emb", query_rot_buff, query_rot_buff_dims);
+    printTensor("key_rot_buff after apply_rotary_pos_emb", key_rot_buff, key_rot_buff_dims);
+
     // concat
-    concat_u8(
+    concat(
         query_rot_buff, query_rot_buff_dims,
         query_pass_buff, query_pass_buff_dims, 
         query_rot_buff_dims.size()-1, 
         query_states, query_shape
     );
-    concat_u8(
+    concat(
         key_rot_buff, key_rot_buff_dims,
         key_pass_buff, key_pass_buff_dims, 
         key_rot_buff_dims.size()-1, 
@@ -782,11 +1221,11 @@ void DynamicTruncationAndConcatentation(
 
     // kv caching
     if (firstRunForDecoder) {
-        transpose_u8(
+        transpose(
             key_states, key_cache, {0, 2, 1, 3}, 
             key_shape, key_cache_shape
         );
-        transpose_u8(
+        transpose(
             value_states, value_cache, {0, 2, 1, 3},
             value_shape, value_cache_shape
         );
@@ -798,11 +1237,11 @@ void DynamicTruncationAndConcatentation(
         }
         // key_states: (1, 32, 1, 80 ) --> (1, 1, 32, 80)
         // write to cache
-        transpose_u8(
+        transpose(
             key_states, key_cache + offset, {0, 2, 1, 3}, 
             key_shape, key_cache_shape
         );
-        transpose_u8(
+        transpose(
             value_states, value_cache + offset, {0, 2, 1, 3}, 
             value_shape, value_cache_shape
         );
@@ -811,15 +1250,24 @@ void DynamicTruncationAndConcatentation(
         value_cache_shape.end()[-3] = kv_seq_len;
         // write back to key buffer
         // (1, 12, 32, 80) --> (1, 32, 12, 80)
-        transpose_u8(
+        transpose(
             key_cache, key_states, {0, 2, 1, 3}, 
             key_cache_shape, key_shape
         );
-        transpose_u8(
+        transpose(
             value_cache, value_states, {0, 2, 1, 3}, 
             value_cache_shape, value_shape
         );
     }
+
+    std::cout << "\nfinal shapes for DynamicTruncationAndConcatentation():\n";
+    printV("key_cache_shape", key_cache_shape);
+    printV("value_cache_shape", value_cache_shape);
+
+    printTensor("query_states", query_states, query_shape);
+    printTensor("key_states", key_states, key_shape);
+    printTensor("value_states", value_states, value_shape);
+
 }
 
 // 
