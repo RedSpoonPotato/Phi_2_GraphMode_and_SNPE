@@ -427,19 +427,65 @@ std::string modelLaunch(
                 reshapeToBufferedBeforeP2first(
                     seq_len, 
                     tot_seq_len,
-                    (float*)buff_8.data(),
+                    (UNQUANT_TYPE*)buff_8.data(),
                     models,
-                    (float)1,
-                    (uint8_t)1
+                    (UNQUANT_TYPE)1,
+                    (QUANT_TYPE)1
+                );
+                execute(*models, "P2_1_first_buffered", false);
+
+                {
+                    // remove later
+                    // seems ok
+                    // bufferedToReshapedAfterP2first(
+                    //     seq_len, 
+                    //     models, 
+                    //     (QUANT_TYPE)2, 
+                    //     "P2_1 output (attn_weights before softmaxing)"
+                    // ); // i dont think we need
+                    // exit(0);
+                }
+
+                
+
+                attn_weights_shape = {1, 32, seq_len, seq_len};
+                bufferedSoftmax(
+                    {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    attn_weights_shape,
+                    (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data()
                 );
 
-                execute(*models, "P2_1_first_buffered", false);
-                attn_weights_shape = {1, 32, seq_len, seq_len};
-                mySoftmax(
-                    (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
-                    (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
-                    attn_weights_shape
+                //remove later
+                {
+                    // bufferedToReshapedAfterP2first(seq_len, models, (QUANT_TYPE)2, "P2_1 first after softmax");
+
+                findNaN(
+                    "value_states buffered NaN",
+                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                    {32, MAX_SEQ_LEN, 80}
                 );
+
+                findNaN(
+                    "attn_weights buffered NaN",
+                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                );
+
+                saveTensor(
+                    "./order66/value_states.bin", 
+                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                    {32, MAX_SEQ_LEN, 80}
+                );
+
+                saveTensor(
+                    "./order66/attn_weights.bin",
+                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                );
+
+                exit(0);
+                }
+
                 if (quant_size) {
                     // qunatize
                     // attn_weights (buff_8)
@@ -452,12 +498,17 @@ std::string modelLaunch(
                 if (quantize) {
                         // qunatize
                 }
-                reshapeToBufferedBeforeP3notFirst(tot_seq_len, (uint8_t*)buff_3.data(), models);
+                reshapeToBufferedBeforeP3notFirst(tot_seq_len, (QUANT_TYPE*)buff_3.data(), models);
                 execute(*models, "P3_not_first_buffered", quantize);
             }
 
             // the 2 is a dummy val for the template
-            bufferedToReshapeBeforeP4(seq_len, i_str, models, (uint8_t)2);
+            bufferedToReshapeBeforeP4(seq_len, i_str, models, (QUANT_TYPE)2);
+
+                {
+                    // remove later
+                    exit(0);
+                }
 
             execute(*models, "P4_1_reshaped_layer_" + i_str, quantize);
             if (quantize) {
@@ -472,8 +523,8 @@ std::string modelLaunch(
                 residual_shape = decoder_output_shape;
                 assert(float_size == 4); // if this is false, think about what dimensions represent before changing
                 copyTensor(
-                    (float*)(*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"]->data(), 
-                    (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), 
+                    (UNQUANT_TYPE*)(*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"]->data(), 
+                    (UNQUANT_TYPE*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), 
                     decoder_output_shape
                 );
             }
