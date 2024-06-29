@@ -26,8 +26,10 @@
 #if DATASIZE == 1
     #define QUANTIZE
     #define QUANT_TYPE uint8_t
+    #define UNQUANT_TYPE float
 #elif DATASIZE == 4
     #define QUANT_TYPE float
+    #define UNQUANT_TYPE float
 #endif
 
 

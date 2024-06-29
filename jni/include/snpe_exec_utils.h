@@ -1272,6 +1272,40 @@ void reshapeToBufferedBeforeP2first(
 }
 
 template <typename T>
+void bufferedToReshapedAfterP2first(
+    size_t seq_len,
+    std::map<std::string, ModelRuntime> *models,
+    T dummy_val,
+    const std::string& str
+) {
+    buffered_to_reshaped(
+        {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+        {1, 32, seq_len, seq_len},
+        (T*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data()
+    );
+
+    findNaN(
+        "P2_1 before softmax search", 
+        (T*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
+        {1, 32, seq_len, seq_len}
+    );
+
+    printTensorColumn(
+        str,
+        (T*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
+        {1, 32, seq_len, seq_len}
+    );
+
+    // can remove later
+    printTensor(
+        // "P2_1 output (attn_weights before softmaxing)", 
+        str,
+        (T*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data(),
+        {1, 32, seq_len, seq_len}
+    );
+}
+
+template <typename T>
 void reshapeToBufferedBeforeP3notFirst(
     size_t tot_seq_len,
     T* temp_buff,
@@ -1302,13 +1336,37 @@ void bufferedToReshapeBeforeP4(
     std::map<std::string, ModelRuntime> *models,
     T dummy_val
 ) {
+
+    findNaN(
+        "P3_out_buffered (before reshape)",
+        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
+        {MAX_SEQ_LEN, HIDDEN_SIZE}
+    );
+
     buffered_to_reshaped(
         {MAX_SEQ_LEN, HIDDEN_SIZE},
         {seq_len, HIDDEN_SIZE},
         (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data()
     );
-}
 
+    findNaN(
+        "P3_out",
+        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
+        {seq_len, HIDDEN_SIZE}
+    );
+
+    printTensorColumn(
+        "P3_out", 
+        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
+        {seq_len, HIDDEN_SIZE}
+    );
+
+    printTensor(
+        "P3_out", 
+        (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
+        {seq_len, HIDDEN_SIZE}
+    );
+}
 
 
 
