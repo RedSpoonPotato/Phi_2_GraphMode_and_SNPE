@@ -255,6 +255,17 @@ std::string modelLaunch(
             tot_seq_len, 
             iteration_num
         );
+
+        {
+            // remove later
+            printTensorColumn(
+                "attention_mask columns",
+                (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+                {seq_len, seq_len},
+                2
+            );
+        }
+
         #ifdef DEBUG
             printN(
                 "prepared Mask", 
@@ -359,9 +370,9 @@ std::string modelLaunch(
             DynamicTruncationAndConcatentation(
                 seq_len,
                 (QUANT_TYPE*)buff_8.data(), // temp_buff
-                (QUANT_TYPE*)buff_3.data(),
-                (QUANT_TYPE*)buff_4.data(),
-                (QUANT_TYPE*)buff_5.data(),
+                (QUANT_TYPE*)buff_3.data(), // query
+                (QUANT_TYPE*)buff_4.data(), // key
+                (QUANT_TYPE*)buff_5.data(), // value
                 (QUANT_TYPE*)sin_cached.data(), // (11, 32) - (12, 32)
                 (QUANT_TYPE*)cos_cached.data(),
                 (QUANT_TYPE*)sin_buff.data(),
@@ -427,7 +438,7 @@ std::string modelLaunch(
                 reshapeToBufferedBeforeP2first(
                     seq_len, 
                     tot_seq_len,
-                    (UNQUANT_TYPE*)buff_8.data(),
+                    buff_8.data(),
                     models,
                     (UNQUANT_TYPE)1,
                     (QUANT_TYPE)1
@@ -443,6 +454,11 @@ std::string modelLaunch(
                     //     (QUANT_TYPE)2, 
                     //     "P2_1 output (attn_weights before softmaxing)"
                     // ); // i dont think we need
+                    // printTensorColumn(
+                    //     "attn_weights BEFORE SOFTMAX columns",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                    // );
                     // exit(0);
                 }
 
@@ -459,31 +475,60 @@ std::string modelLaunch(
                 {
                     // bufferedToReshapedAfterP2first(seq_len, models, (QUANT_TYPE)2, "P2_1 first after softmax");
 
-                findNaN(
-                    "value_states buffered NaN",
-                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
-                    {32, MAX_SEQ_LEN, 80}
-                );
+                    findNaN(
+                        "value_states buffered NaN",
+                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                        {32, MAX_SEQ_LEN, 80}
+                    );
 
-                findNaN(
-                    "attn_weights buffered NaN",
-                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                );
+                    findNaN(
+                        "attn_weights buffered NaN",
+                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                    );
 
-                saveTensor(
-                    "./order66/value_states.bin", 
-                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
-                    {32, MAX_SEQ_LEN, 80}
-                );
+                    printTensorColumn(
+                        "\nquery_states columns",
+                        (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"],
+                        {32, MAX_SEQ_LEN, 80}
+                    );
+                    printTensorColumn(
+                        "\nkey_states columns",
+                        (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"],
+                        {32, MAX_SEQ_LEN, 80}
+                    );
+                    printTensorColumn(
+                        "\nvalue_states columns",
+                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                        {32, MAX_SEQ_LEN, 80}
+                    );
 
-                saveTensor(
-                    "./order66/attn_weights.bin",
-                    (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                );
+                    // printTensorColumn(
+                    //     "attn_weights columns",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                    // );
 
-                exit(0);
+                    // printTensorColumn(
+                    //     "attention_mask columns",
+                    //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+                    //     {MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     7
+                    // );
+
+                    // saveTensor(
+                    //     "./order66/value_states.bin", 
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, 80}
+                    // );
+
+                    // saveTensor(
+                    //     "./order66/attn_weights.bin",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                    // );
+
+                    // exit(0);
                 }
 
                 if (quant_size) {
