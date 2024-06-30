@@ -1153,53 +1153,53 @@ void copyKV(T* in, T* out) {
 
 
 // generate mask and position_ids; also iteration_num should first be 0
-void prepareInputs_old(float* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num)
-{
-    if (iteration_num == 0) {
-        // set position_ids shape
-        position_ids[MAX_SEQ_LEN + 0] = 1;
-        position_ids[MAX_SEQ_LEN + 1] = 1;
-        position_ids[MAX_SEQ_LEN + 2] = 1;
-        position_ids[MAX_SEQ_LEN + 3] = seq_len;
-        // set position_ids
-        for (int i = 0; i < seq_len; ++i) { position_ids[i] = i; }
-        std::cout << "set mask1\n";
-        // set mask shape
-        uint32_t* ptr32 = (uint32_t*)mask;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = seq_len;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
-        // set mask
-        std::cout << "writing mask\n";
-        float lowest = std::numeric_limits<float>::lowest();
-        for (uint32_t row = 0; row < seq_len; row++) {
-            for (uint32_t col = 0; col < seq_len; col++) {
-                // std::cout << "(row, col): (" << row << ", " << col << ")\n";
-                if (row >= col) { mask[row*seq_len + col] = 0; }
-                else            { mask[row*seq_len + col] = lowest; } 
-            }
-        }
-    }
-    else {
-        // set position_ids shape
-        position_ids[MAX_SEQ_LEN + 0] = 1;
-        position_ids[MAX_SEQ_LEN + 1] = 1;
-        position_ids[MAX_SEQ_LEN + 2] = 1;
-        position_ids[MAX_SEQ_LEN + 3] = 1;
-        // set position_ids
-        position_ids[0] = seq_len-1;
-        std::cout << "set mask2\n";
-        // set mask shape
-        uint32_t* ptr32 = (uint32_t*)mask;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = 1;
-        ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
-        // set mask
-        for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
-    }
-}
+// void prepareInputs_old(float* mask, int* position_ids, uint32_t seq_len, uint32_t iteration_num)
+// {
+//     if (iteration_num == 0) {
+//         // set position_ids shape
+//         position_ids[MAX_SEQ_LEN + 0] = 1;
+//         position_ids[MAX_SEQ_LEN + 1] = 1;
+//         position_ids[MAX_SEQ_LEN + 2] = 1;
+//         position_ids[MAX_SEQ_LEN + 3] = seq_len;
+//         // set position_ids
+//         for (int i = 0; i < seq_len; ++i) { position_ids[i] = i; }
+//         std::cout << "set mask1\n";
+//         // set mask shape
+//         uint32_t* ptr32 = (uint32_t*)mask;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = seq_len;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
+//         // set mask
+//         std::cout << "writing mask\n";
+//         float lowest = std::numeric_limits<float>::lowest();
+//         for (uint32_t row = 0; row < seq_len; row++) {
+//             for (uint32_t col = 0; col < seq_len; col++) {
+//                 // std::cout << "(row, col): (" << row << ", " << col << ")\n";
+//                 if (row >= col) { mask[row*seq_len + col] = 0; }
+//                 else            { mask[row*seq_len + col] = lowest; } 
+//             }
+//         }
+//     }
+//     else {
+//         // set position_ids shape
+//         position_ids[MAX_SEQ_LEN + 0] = 1;
+//         position_ids[MAX_SEQ_LEN + 1] = 1;
+//         position_ids[MAX_SEQ_LEN + 2] = 1;
+//         position_ids[MAX_SEQ_LEN + 3] = 1;
+//         // set position_ids
+//         position_ids[0] = seq_len-1;
+//         std::cout << "set mask2\n";
+//         // set mask shape
+//         uint32_t* ptr32 = (uint32_t*)mask;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 0] = 1;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 1] = 1;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 2] = 1;
+//         ptr32[MAX_SEQ_LEN * MAX_SEQ_LEN + 3] = seq_len;
+//         // set mask
+//         for (uint32_t i = 0; i < seq_len; i++) { mask[i] = 0; }
+//     }
+// }
 
 // iteration_num should first be 0
 template <typename T>
@@ -1207,7 +1207,9 @@ void prepareMask(T* mask, size_t seq_len, size_t iteration_num)
 {
     if (iteration_num == 0) {
         // set mask
-        T lowest = std::numeric_limits<T>::lowest();
+        // T lowest = std::numeric_limits<T>::lowest();
+        T lowest = static_cast<T>(LOWEST); // fp16 min
+        // T lowest = (T)(1); // REMOVE LATER
         for (size_t row = 0; row < seq_len; row++) {
             for (size_t col = 0; col < seq_len; col++) {
                 // std::cout << "(row, col): (" << row << ", " << col << ")\n";
@@ -1232,7 +1234,7 @@ void reshapeToBufferedBeforeP2first(
     unquant_type unquant_val,
     quant_type quant_val
 ) {
-    std::cout << "calling reshape_to_buffered(query)\n";
+    
     reshaped_to_buffered(
         {1, 32, seq_len, 80},
         {1, 32, MAX_SEQ_LEN, 80},
@@ -1241,7 +1243,7 @@ void reshapeToBufferedBeforeP2first(
         (unquant_type*)temp_buff,
         (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data()
     );
-    std::cout << "calling reshape_to_buffered(key)\n";
+
     reshaped_to_buffered(
         {1, 32, tot_seq_len, 80},
         {1, 32, MAX_SEQ_LEN, 80},
@@ -1250,7 +1252,7 @@ void reshapeToBufferedBeforeP2first(
         (unquant_type*)temp_buff,
         (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data()
     );
-    std::cout << "calling reshape_to_buffered(value)\n";
+
     reshaped_to_buffered(
         {1, 32, tot_seq_len, 80},
         {1, MAX_SEQ_LEN, 32, 80},
@@ -1259,16 +1261,32 @@ void reshapeToBufferedBeforeP2first(
         (quant_type*)temp_buff,
         (quant_type*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data()
     );
-    std::cout << "calling reshape_to_buffered(mask)\n";
+
     reshaped_to_buffered(
         {1, 1, seq_len, seq_len},
         {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
-        std::numeric_limits<unquant_type>::lowest(),
+        // static_cast<unquant_type>(LOWEST),
+        static_cast<unquant_type>(0),
         (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
         (unquant_type*)temp_buff,
         (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()
     );
-    std::cout << "finished reshape_to_buffered(mask)\n";
+    
+
+    // remove later
+    printTensorColumn(
+        "attention_mask columns",
+        (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+        {seq_len, MAX_SEQ_LEN},
+        2
+    );
+
+    printTensorColumn(
+        "attention_mask columns",
+        (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+        {MAX_SEQ_LEN, MAX_SEQ_LEN},
+        2
+    );
 }
 
 template <typename T>

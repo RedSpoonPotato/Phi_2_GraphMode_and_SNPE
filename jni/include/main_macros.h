@@ -32,7 +32,7 @@
     #define UNQUANT_TYPE float
 #endif
 
-
+#define LOWEST -65504
 
 #define VOCAB_SIZE 51200
 

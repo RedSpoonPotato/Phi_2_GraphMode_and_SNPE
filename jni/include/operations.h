@@ -183,7 +183,7 @@ void printTensorColumn(
     std::cout << name << ": [";
     for (size_t i = 0; i < shape.end()[-2]; i++) {
         if (counter >= max_counter_val) { std::cout << "\n"; }
-        std::cout << tensor[shape.end()[-1] * i + col];
+        std::cout << tensor[(shape.end()[-1] * i) + col];
         if (i < shape.end()[-2]-1) { std::cout << ", "; }
     }
     std::cout << "]\n";
@@ -215,8 +215,8 @@ void saveTensor(const std::string& path, const T* tensor, const std::vector<size
     }
     // Save the shape
     size_t dimensions = shape.size();
-    outFile.write(reinterpret_cast<const char*>(&dimensions), sizeof(size_t));
-    outFile.write(reinterpret_cast<const char*>(shape.data()), dimensions * sizeof(size_t));
+    // outFile.write(reinterpret_cast<const char*>(&dimensions), sizeof(size_t));
+    // outFile.write(reinterpret_cast<const char*>(shape.data()), dimensions * sizeof(size_t));
     // Calculate the total number of elements
     size_t totalElements = 1;
     for (size_t dim : shape) {
@@ -360,12 +360,12 @@ void bufferedSoftmax(
         // std::cout << "i: " << i << "\n";
         buffered_offsets[i-1] = buffered_offsets[i] * buffered_shape[i];
     }
-    // printV("softmax buffered_offsets", buffered_offsets);
+    printV("softmax buffered_offsets", buffered_offsets);
     // apply softmax
     size_t offset;
-    for (size_t i = 0; i < buffered_shape[0]; i++) {
-    for (size_t j = 0; j < buffered_shape[1]; j++) {
-    for (size_t k = 0; k < buffered_shape[2]; k++) {
+    for (size_t i = 0; i < unbuffered_shape[0]; i++) {
+    for (size_t j = 0; j < unbuffered_shape[1]; j++) {
+    for (size_t k = 0; k < unbuffered_shape[2]; k++) {
         offset =    i*buffered_offsets[0] +
                     j*buffered_offsets[1] +
                     k*buffered_offsets[2];
