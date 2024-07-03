@@ -340,15 +340,19 @@ template <typename T>
 void loadLayerNorms(
     std::vector<std::vector<T>>& layernorm_weights,
     std::vector<std::vector<T>>& layernorm_biases, 
-    const std::map<std::string, std::string>& otherPaths
+    const std::map<std::string, std::string>& otherPaths,
+    std::vector<T>& final_layernorm_weight,
+    std::vector<T>& final_layernorm_bias
 ) {
-    assert(layernorm_weights.size() == layernorm_weights.size());
+    assert(layernorm_weights.size() == layernorm_biases.size());
     assert(layernorm_weights.size() == DECODERS);
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
         loadFileAndDontResize(layernorm_weights[i], otherPaths.at("layernorm_weight_" + i_str));
         loadFileAndDontResize(layernorm_biases[i], otherPaths.at("layernorm_bias_" + i_str));
     }
+    loadFloatDataFile(final_layernorm_weight, otherPaths.at("final_layernorm_weight"));
+    loadFloatDataFile(final_layernorm_bias, otherPaths.at("final_layernorm_bias"));
 }
 
 
@@ -365,7 +369,7 @@ void linkBuffers(
 ) {
 
     // this may not be able to be reshaped
-    (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_8;
+    (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_8; // modified
     (*models)["gelu"].applicationOutputBuffers["gelu_out:0"] = &buff_8;
     
     for (size_t i = 0; i < DECODERS; i++) {
@@ -408,6 +412,9 @@ void linkBuffers(
     (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
     (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
     (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
+
+    (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
+    (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
 }
 
 // std::string intialize_model_runtime(
@@ -819,21 +826,15 @@ void reshapeModels(
 void reshapeStuff(
     std::map<std::string, ModelRuntime> *models,
     const uint32_t iteration_num,
-    const size_t datasize,
-    const size_t tot_seq_len
+    const size_t tot_seq_len,
+    const size_t quant_datasize,
+    const size_t unquant_datasize
 ) {
     if (iteration_num == 0) {
         reshapeModels(*models, "gelu",
             {
                 {"input:0", {1, INTERMEDIATE_SIZE}}
-            }, datasize);
-
-        reshapeModels(*models, "P4_2_reshaped",
-            {
-                {"p4_1_out:0", {1, HIDDEN_SIZE}},
-                {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
-                {"residual:0", {1, HIDDEN_SIZE}},
-            }, datasize);
+            }, unquant_datasize);
 
         for (size_t i = 0; i < DECODERS; i++) {
             std::string i_str = std::to_string(i);
@@ -841,18 +842,30 @@ void reshapeStuff(
             reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
                 {
                     {"hidden_states:0", {1, HIDDEN_SIZE}}
-                }, datasize);
+                }, quant_datasize);
 
             reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
                 {
                     {"gelu_fc1_out:0", {1, INTERMEDIATE_SIZE}}
-                }, datasize);
+                }, quant_datasize);
 
             reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
                 {
                     {"p3_out:0", {1, HIDDEN_SIZE}}
-                }, datasize);
+                }, quant_datasize);
         }
+
+        reshapeModels(*models, "P4_2_reshaped",
+            {
+                {"p4_1_out:0", {1, HIDDEN_SIZE}},
+                {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
+                {"residual:0", {1, HIDDEN_SIZE}},
+            }, unquant_datasize);
+
+        reshapeModels(*models, "Final_LM_Head",
+            {
+                {"final_input:0", {1, VOCAB_SIZE}}
+            }, quant_datasize);
     }
 
     reshapeModels(*models, "P2_not_first_reshaped",
@@ -860,7 +873,7 @@ void reshapeStuff(
             {"query_states_0:0", {1, 32, 80}},
             {"key_states_0:0", {tot_seq_len, 32, 80}},
             {"attention_mask:0", {tot_seq_len}},
-        }, datasize);
+        }, unquant_datasize);
 }
 
 void freeModels(std::vector<ModelRuntime>* models) {
@@ -1203,7 +1216,7 @@ void copyKV(T* in, T* out) {
 
 // iteration_num should first be 0
 template <typename T>
-void prepareMask(T* mask, size_t seq_len, size_t iteration_num)
+void prepareMask(T* mask, size_t seq_len, size_t iteration_num, T* temp_buff)
 {
     if (iteration_num == 0) {
         // set mask
@@ -1217,6 +1230,15 @@ void prepareMask(T* mask, size_t seq_len, size_t iteration_num)
                 else            { mask[row*seq_len + col] = lowest; } 
             }
         }
+        // convert to buffered version
+        reshaped_to_buffered(
+            {1, 1, seq_len, seq_len},
+            {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
+            static_cast<T>(0),
+            mask,
+            temp_buff,
+            mask
+        );
     }
     else {
         // set mask
@@ -1234,6 +1256,27 @@ void reshapeToBufferedBeforeP2first(
     unquant_type unquant_val,
     quant_type quant_val
 ) {
+
+
+    {
+        // remvoe alter
+                // printTensorColumn(
+                //     "\nquery_states columns before buffered_transformation",
+                //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+                // printTensorColumn(
+                //     "\nkey_states columns before buffered_transformation",
+                //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+
+                // printTensorColumn(
+                //     "\nvalue_states columns before buffered_transformation",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+    }
     
     reshaped_to_buffered(
         {1, 32, seq_len, 80},
@@ -1255,38 +1298,59 @@ void reshapeToBufferedBeforeP2first(
 
     reshaped_to_buffered(
         {1, 32, tot_seq_len, 80},
-        {1, MAX_SEQ_LEN, 32, 80},
+        {1, 32, MAX_SEQ_LEN, 80}, // modified
         static_cast<quant_type>(0),
         (quant_type*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
         (quant_type*)temp_buff,
         (quant_type*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data()
     );
 
-    reshaped_to_buffered(
-        {1, 1, seq_len, seq_len},
-        {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
-        // static_cast<unquant_type>(LOWEST),
-        static_cast<unquant_type>(0),
-        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
-        (unquant_type*)temp_buff,
-        (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()
-    );
+    // I put it somewhere else, dont need it (can deleted)
+    // reshaped_to_buffered(
+    //     {1, 1, seq_len, seq_len},
+    //     {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
+    //     // static_cast<unquant_type>(LOWEST),
+    //     static_cast<unquant_type>(0),
+    //     (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+    //     (unquant_type*)temp_buff,
+    //     (unquant_type*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()
+    // );
     
 
     // remove later
-    printTensorColumn(
-        "attention_mask columns",
-        (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
-        {seq_len, MAX_SEQ_LEN},
-        2
-    );
+    // printTensorColumn(
+    //     "attention_mask columns",
+    //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+    //     {seq_len, MAX_SEQ_LEN},
+    //     2
+    // );
 
-    printTensorColumn(
-        "attention_mask columns",
-        (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
-        {MAX_SEQ_LEN, MAX_SEQ_LEN},
-        2
-    );
+    // printTensorColumn(
+    //     "attention_mask columns",
+    //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+    //     {MAX_SEQ_LEN, MAX_SEQ_LEN},
+    //     2
+    // );
+    {
+        // remove later
+                // printTensorColumn(
+                //     "\nquery_states columns after buffered_transformation",
+                //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+                // printTensorColumn(
+                //     "\nkey_states columns after buffered_transformation",
+                //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+
+                // printTensorColumn(
+                //     "\nvalue_states columns after buffered_transformation",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+                // exit(0);
+    }
 }
 
 template <typename T>
@@ -1384,6 +1448,25 @@ void bufferedToReshapeBeforeP4(
         (T*)(*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"]->data(),
         {seq_len, HIDDEN_SIZE}
     );
+}
+
+
+void fillZeros(
+    std::vector<uint8_t>& buff_1,
+    std::vector<uint8_t>& buff_3,
+    std::vector<uint8_t>& buff_4,
+    std::vector<uint8_t>& buff_5,
+    std::vector<uint8_t>& buff_6,
+    std::vector<uint8_t>& buff_7,
+    std::vector<uint8_t>& buff_8
+) {
+    std::fill(buff_1.begin(), buff_1.end(), 0);
+    std::fill(buff_3.begin(), buff_3.end(), 0);
+    std::fill(buff_4.begin(), buff_4.end(), 0);
+    std::fill(buff_5.begin(), buff_5.end(), 0);
+    std::fill(buff_6.begin(), buff_6.end(), 0);
+    std::fill(buff_7.begin(), buff_7.end(), 0);
+    std::fill(buff_8.begin(), buff_8.end(), 0);
 }
 
 

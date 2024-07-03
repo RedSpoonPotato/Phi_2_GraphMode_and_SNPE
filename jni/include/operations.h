@@ -180,7 +180,7 @@ void printTensorColumn(
 ) {
     size_t counter = 0;
     size_t max_counter_val = 20;
-    std::cout << name << ": [";
+    std::cout << name << "(column "  << std::to_string(col) << "): [";
     for (size_t i = 0; i < shape.end()[-2]; i++) {
         if (counter >= max_counter_val) { std::cout << "\n"; }
         std::cout << tensor[(shape.end()[-1] * i) + col];
@@ -381,7 +381,7 @@ void bufferedSoftmax(
 
 void layernorm_1d_32f(
     const float* vec, const float* weight, const float* bias, float* out,
-    const size_t vec_len, const size_t weight_len, const float eps
+    const size_t vec_len, const float eps
 ) {
     // mean
     float mean = 0;
@@ -403,18 +403,34 @@ void layernorm_1d_32f(
 
 void layernorm_Nd_32f(
     const float* tensor, const float* weight, const float* bias, float* out,
-    const std::vector<size_t>& tensor_dims, const int weight_len,
+    const std::vector<size_t>& tensor_dims,
     const float eps
 ) {
     int num_vectors = 1;
-    int vec_len = tensor_dims.end()[-1];
+    size_t vec_len = tensor_dims.end()[-1];
     for (int i = 0; i < tensor_dims.size() - 1; i++) { num_vectors *= tensor_dims[i]; }
     for (int i = 0; i < num_vectors; i++) {
         layernorm_1d_32f(
-            &tensor[i*weight_len], weight, bias, &out[i*weight_len],
-            vec_len, weight_len, eps);
+            &tensor[i*vec_len], weight, bias, &out[i*vec_len],
+            vec_len, eps);
     }
 }
+
+template <typename T>
+size_t Argmax(const T* ptr, const size_t len) {
+    assert(shape.size() == 2);
+    size_t max_index = 0;
+    T max = std::numeric_limits<T>::lowest();
+    for (size_t i = 0; i < len; i++) {
+        if (max < ptr[i]) {
+            max = ptr[i];
+            max_index = i;
+        }
+    }
+    return max_index;
+}
+
+
 
 // // not input-to-output safe
 // void truncate_u8(
@@ -1478,6 +1494,21 @@ void buffered_to_reshaped(
         }
 
         in[i] = in[buffer_index];
+    }
+}
+
+// can be done in memory
+void NewGELU(
+    const float* in,
+    float* out,
+    const std::vector<size_t>& shape
+) {
+    // 0.5 * input * (1.0 + tf.tanh(math.sqrt(2.0 / math.pi) * (input + 0.044715 * tf.pow(input, 3.0))))
+    // calculate total number of elements
+    size_t total_elements = 1;
+    for (const size_t& dim : shape) { total_elements *= dim; }
+    for (size_t i = 0; i < total_elements; i++) {
+        out[i] = 0.5f * in[i] * (1.0f + (float)tanh(sqrt(2.0 / M_PI) * (in[i] + 0.044715 * pow(in[i], 3.0))));
     }
 }
 
