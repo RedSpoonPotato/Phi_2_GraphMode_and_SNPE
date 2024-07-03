@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
     // model_names.insert("P3_not_first_reshaped"); // this had problems so using buffered version instead to avoid reshaping
     model_names.insert("P3_not_first_buffered");
     model_names.insert("P4_2_reshaped");
+    model_names.insert("Final_LM_Head");
 
     // setting runtime
     for (const std::string& model_name : model_names) {
@@ -103,6 +104,8 @@ int main(int argc, char** argv) {
         otherPaths["layernorm_weight_" + i_str] = "./fp16_test/model_split/data/layernorm_weight_" + i_str + ".bin";
         otherPaths["layernorm_bias_" + i_str] = "./fp16_test/model_split/data/layernorm_bias_" + i_str + ".bin";
     }
+    otherPaths["final_layernorm_weight"]    = "./fp16_test/model_split/data/final_layernorm_weight.bin";
+    otherPaths["final_layernorm_bias"]      = "./fp16_test/model_split/data/final_layernorm_bias.bin";
 
     // other params
     uint32_t max_iterations = 2;  // CHANGE THIS TO WHATEVER IT SHOULD BE
