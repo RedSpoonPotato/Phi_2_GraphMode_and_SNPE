@@ -351,8 +351,8 @@ void loadLayerNorms(
         loadFileAndDontResize(layernorm_weights[i], otherPaths.at("layernorm_weight_" + i_str));
         loadFileAndDontResize(layernorm_biases[i], otherPaths.at("layernorm_bias_" + i_str));
     }
-    loadFloatDataFile(final_layernorm_weight, otherPaths.at("final_layernorm_weight"));
-    loadFloatDataFile(final_layernorm_bias, otherPaths.at("final_layernorm_bias"));
+    loadFileAndDontResize(final_layernorm_weight, otherPaths.at("final_layernorm_weight"));
+    loadFileAndDontResize(final_layernorm_bias, otherPaths.at("final_layernorm_bias"));
 }
 
 
@@ -369,38 +369,63 @@ void linkBuffers(
 ) {
 
     // this may not be able to be reshaped
-    (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_8; // modified
-    (*models)["gelu"].applicationOutputBuffers["gelu_out:0"] = &buff_8;
+    // (*models)["gelu"].applicationInputBuffers["input:0"] = &buff_8; // modified
+    // (*models)["gelu"].applicationOutputBuffers["gelu_out:0"] = &buff_8;
     
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
-        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
-        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
-        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
-        (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
+        // (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
+        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
+        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
+        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
+
+        (*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        (*models)["P1_Q_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
+
+        (*models)["P1_K_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        (*models)["P1_K_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
+
+        (*models)["P1_V_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        (*models)["P1_V_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
+
+        (*models)["P1_FC1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        (*models)["P1_FC1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
 
         (*models)["P1_2_reshaped_layer_" + i_str].applicationInputBuffers["gelu_fc1_out:0"] = &buff_8;
         (*models)["P1_2_reshaped_layer_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
     }
 
-    (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"] = &buff_3;
-    (*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"] = &buff_4;
-    (*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"] = &buff_7;
-    (*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+    // (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"] = &buff_3;
+    // (*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"] = &buff_4;
+    // (*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"] = &buff_7;
+    // (*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
-    (*models)["P2_not_first_reshaped"].applicationInputBuffers["query_states_0:0"] = &buff_3;
-    (*models)["P2_not_first_reshaped"].applicationInputBuffers["key_states_0:0"] = &buff_4;
-    (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7;
-    (*models)["P2_not_first_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"] = &buff_3;
+    (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
+    (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
-    (*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
-    (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+    // (*models)["P2_not_first_reshaped"].applicationInputBuffers["query_states_0:0"] = &buff_3;
+    // (*models)["P2_not_first_reshaped"].applicationInputBuffers["key_states_0:0"] = &buff_4;
+    // (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7; // keep uncommented
+    // (*models)["P2_not_first_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
-    (*models)["P3_not_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
-    (*models)["P3_not_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    (*models)["P3_not_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+    // (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    // (*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
+    // (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+
+    // (*models)["P3_not_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
+    // (*models)["P3_not_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    // (*models)["P3_not_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+
+    // temp, unless it works
+    // (*models)["P3_not_first_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    // (*models)["P3_not_first_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
+    // (*models)["P3_not_first_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+
+    (*models)["P3_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    (*models)["P3_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
+    (*models)["P3_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
 
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
@@ -408,9 +433,9 @@ void linkBuffers(
         (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_4;
     }
 
+    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
     (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
     (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
-    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
     (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
 
     (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
@@ -783,7 +808,7 @@ void create_user_buffers(
 void reshapeModels(
     std::map<std::string, ModelRuntime>& models,
     std::string model_name,
-    const std::unordered_map<std::string, std::vector<size_t>>& new_map,
+    const std::vector<std::pair<std::string, std::vector<size_t>>>& new_map,
     size_t datasize
 ) {
 
@@ -795,14 +820,43 @@ void reshapeModels(
     bool useUserSuppliedBuffers = true;
     bool useCaching = false;
     bool cpuFixedPointMode = false;
-    models[model_name].snpe = setBuilderOptions_reshape(
-        models[model_name].container,
-        models[model_name].runtime,
-        models[model_name].runtimeList,
-        useUserSuppliedBuffers,
-        useCaching, 
-        cpuFixedPointMode,
-        new_map);
+
+    if (model_name.find("P1_1_reshaped_layer_") == std::string::npos) {
+        models[model_name].snpe = setBuilderOptions_reshape(
+            models[model_name].container,
+            models[model_name].runtime,
+            models[model_name].runtimeList,
+            useUserSuppliedBuffers,
+            useCaching, 
+            cpuFixedPointMode,
+            new_map);
+    } else {
+        std::cout << "case 2\n";
+        /* NOTE!!! NEED TO MAKE SURE THIS ORDER MATCHES WHAT IS ACTUALLY HAPPENING */
+        std::vector<std::string> outputNames = {
+            "query_states:0",
+            "key_states:0",
+            "value_states:0",
+            "fc1_out:0"
+            // "key_states:0",
+            // "query_states:0",
+            // "value_states:0",
+            // "fc1_out:0"
+        };
+
+        models[model_name].snpe = setBuilderOptions_ex_multipleOuts_reshape(
+            models[model_name].container,
+            models[model_name].runtime,
+            models[model_name].runtimeList,
+            useUserSuppliedBuffers,
+            models[model_name].platformConfig,
+            useCaching, 
+            cpuFixedPointMode,
+            outputNames,
+            new_map
+        );
+    }
+
 
     int i = 0;
     for (const auto& input_name : models[model_name].input_names) {
@@ -823,6 +877,84 @@ void reshapeModels(
     }
 }
 
+// is called once per modelLaunch()
+void reshapeInitial(
+    std::map<std::string, ModelRuntime> *models,
+    const size_t seq_len,
+    const size_t tot_seq_len,
+    const size_t quant_datasize,
+    const size_t unquant_datasize
+) {
+    // reshapeModels(*models, "gelu",
+    //     {
+    //         {"input:0", {seq_len, INTERMEDIATE_SIZE}}
+    //     }, unquant_datasize);
+
+    reshapeModels(*models, "P2_reshaped",
+    {
+        {"query_states:0", {32, seq_len, 80}},
+        {"key_states:0", {32, tot_seq_len, 80}}
+        // {"attention_mask:0", {tot_seq_len}},
+    }, unquant_datasize);
+
+    reshapeModels(*models, "P3_reshaped",
+    {
+        {"attn_weights:0", {32, seq_len, tot_seq_len}},
+        {"value_states:0", {32, tot_seq_len, 80}}
+    }, quant_datasize);
+
+    for (size_t i = 0; i < DECODERS; i++) {
+
+        std::string i_str = std::to_string(i);
+
+        // reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
+        //     {
+        //         {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+        //     }, quant_datasize);
+        reshapeModels(*models, "P1_Q_reshaped_layer_" + i_str,
+            {
+                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            }, quant_datasize);
+
+        reshapeModels(*models, "P1_K_reshaped_layer_" + i_str,
+            {
+                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            }, quant_datasize);
+
+        reshapeModels(*models, "P1_V_reshaped_layer_" + i_str,
+            {
+                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            }, quant_datasize);
+
+        reshapeModels(*models, "P1_FC1_reshaped_layer_" + i_str,
+            {
+                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            }, quant_datasize);
+
+        reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
+            {
+                {"gelu_fc1_out:0", {seq_len, INTERMEDIATE_SIZE}}
+            }, quant_datasize);
+
+        reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
+            {
+                {"p3_out:0", {seq_len, HIDDEN_SIZE}}
+            }, quant_datasize);
+    }
+
+    reshapeModels(*models, "P4_2_reshaped",
+        {
+            {"p4_1_out:0", {seq_len, HIDDEN_SIZE}},
+            {"feed_forward_hidden_states:0", {seq_len, HIDDEN_SIZE}},
+            {"residual:0", {seq_len, HIDDEN_SIZE}},
+        }, unquant_datasize);
+
+    reshapeModels(*models, "Final_LM_Head",
+        {
+            {"final_input:0", {seq_len, HIDDEN_SIZE}}
+        }, quant_datasize);
+}
+
 void reshapeStuff(
     std::map<std::string, ModelRuntime> *models,
     const uint32_t iteration_num,
@@ -831,15 +963,35 @@ void reshapeStuff(
     const size_t unquant_datasize
 ) {
     if (iteration_num == 0) {
-        reshapeModels(*models, "gelu",
-            {
-                {"input:0", {1, INTERMEDIATE_SIZE}}
-            }, unquant_datasize);
+        // reshapeModels(*models, "gelu",
+        //     {
+        //         {"input:0", {1, INTERMEDIATE_SIZE}}
+        //     }, unquant_datasize);
 
         for (size_t i = 0; i < DECODERS; i++) {
             std::string i_str = std::to_string(i);
 
-            reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
+            // reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
+            //     {
+            //         {"hidden_states:0", {1, HIDDEN_SIZE}}
+            //     }, quant_datasize);
+
+            reshapeModels(*models, "P1_Q_reshaped_layer_" + i_str,
+                {
+                    {"hidden_states:0", {1, HIDDEN_SIZE}}
+                }, quant_datasize);
+
+            reshapeModels(*models, "P1_K_reshaped_layer_" + i_str,
+                {
+                    {"hidden_states:0", {1, HIDDEN_SIZE}}
+                }, quant_datasize);
+
+            reshapeModels(*models, "P1_V_reshaped_layer_" + i_str,
+                {
+                    {"hidden_states:0", {1, HIDDEN_SIZE}}
+                }, quant_datasize);
+
+            reshapeModels(*models, "P1_FC1_reshaped_layer_" + i_str,
                 {
                     {"hidden_states:0", {1, HIDDEN_SIZE}}
                 }, quant_datasize);
@@ -864,16 +1016,22 @@ void reshapeStuff(
 
         reshapeModels(*models, "Final_LM_Head",
             {
-                {"final_input:0", {1, VOCAB_SIZE}}
+                {"final_input:0", {1, HIDDEN_SIZE}}
             }, quant_datasize);
     }
 
-    reshapeModels(*models, "P2_not_first_reshaped",
-        {
-            {"query_states_0:0", {1, 32, 80}},
-            {"key_states_0:0", {tot_seq_len, 32, 80}},
-            {"attention_mask:0", {tot_seq_len}},
-        }, unquant_datasize);
+
+    reshapeModels(*models, "P2_reshaped",
+    {
+        {"query_states:0", {32, 1, 80}},
+        {"key_states:0", {32, tot_seq_len, 80}}
+    }, unquant_datasize);
+
+    reshapeModels(*models, "P3_reshaped",
+    {
+        {"attn_weights:0", {32, 1, tot_seq_len}},
+        {"value_states:0", {32, tot_seq_len, 80}}
+    }, quant_datasize);
 }
 
 void freeModels(std::vector<ModelRuntime>* models) {
@@ -1216,7 +1374,7 @@ void copyKV(T* in, T* out) {
 
 // iteration_num should first be 0
 template <typename T>
-void prepareMask(T* mask, size_t seq_len, size_t iteration_num, T* temp_buff)
+void prepareMask(T* mask, size_t seq_len, size_t iteration_num, bool buffered, T* temp_buff=nullptr)
 {
     if (iteration_num == 0) {
         // set mask
@@ -1230,15 +1388,18 @@ void prepareMask(T* mask, size_t seq_len, size_t iteration_num, T* temp_buff)
                 else            { mask[row*seq_len + col] = lowest; } 
             }
         }
-        // convert to buffered version
-        reshaped_to_buffered(
-            {1, 1, seq_len, seq_len},
-            {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
-            static_cast<T>(0),
-            mask,
-            temp_buff,
-            mask
-        );
+
+        if (buffered) {
+            // convert to buffered version
+            reshaped_to_buffered(
+                {1, 1, seq_len, seq_len},
+                {1, 1, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                static_cast<T>(0),
+                mask,
+                temp_buff,
+                mask
+            );
+        }
     }
     else {
         // set mask

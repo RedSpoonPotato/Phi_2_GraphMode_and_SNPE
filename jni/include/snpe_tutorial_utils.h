@@ -37,6 +37,7 @@
 #include <cassert>
 #include <fstream>
 #include <tuple>
+#include <map>
 
 #include "SNPE/SNPEBuilder.hpp"
 
@@ -257,7 +258,7 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
     bool useUserSuppliedBuffers,
     // zdl::DlSystem::PlatformConfig platformConfig,
     bool useCaching, bool cpuFixedPointMode,
-    const std::unordered_map<std::string, std::vector<size_t>> &dims_dict)
+    const std::vector<std::pair<std::string, std::vector<size_t>>>& dims_dict)
 {
     #ifdef DEBUG
         std::cout << "checkpoint 1\n";
@@ -275,9 +276,12 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
         runtimeList.add(runtime);
     }
 
+    zdl::DlSystem::TensorShapeMap inputShapeMap;
+
     for (const auto& pair : dims_dict) {
+        std::cout << "\tinput: " << pair.first << "\n";
         zdl::DlSystem::TensorShape shape(pair.second);
-        zdl::DlSystem::TensorShapeMap inputShapeMap;
+        // zdl::DlSystem::TensorShapeMap inputShapeMap;
         inputShapeMap.add(pair.first.c_str(), shape);
         snpeBuilder.setInputDimensions(inputShapeMap);
     }
@@ -305,6 +309,58 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
     return snpe;
 }
 
+std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex_multipleOuts_reshape(std::unique_ptr<zdl::DlContainer::IDlContainer> & container,
+                                                   zdl::DlSystem::Runtime_t runtime,
+                                                   zdl::DlSystem::RuntimeList runtimeList,
+                                                   bool useUserSuppliedBuffers,
+                                                   zdl::DlSystem::PlatformConfig platformConfig,
+                                                   bool useCaching, bool cpuFixedPointMode,
+                                                   const std::vector<std::string>& outputNames,
+                                                   const std::vector<std::pair<std::string, std::vector<size_t>>>& dims_dict)
+{
+    std::unique_ptr<zdl::SNPE::SNPE> snpe;
+    zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+
+    zdl::DlSystem::StringList outputNamesList;
+    std::cout << "appending\n";
+    for (size_t i = 0; i < outputNames.size(); i++) { 
+        std::cout << "i: " << i << "\n";
+        outputNamesList.append(outputNames[i].c_str()); 
+    }
+    std::cout << "done appending\n";
+    // for (size_t i = 0; i < outputNames.size(); i++) { outputNamesList.append(outputNames[i].c_str()); }
+
+    zdl::DlSystem::TensorShapeMap inputShapeMap;
+
+    for (const auto& pair : dims_dict) {
+        std::cout << "\tinput: " << pair.first << "\n";
+        zdl::DlSystem::TensorShape shape(pair.second);
+        inputShapeMap.add(pair.first.c_str(), shape);
+        snpeBuilder.setInputDimensions(inputShapeMap);
+    }
+
+    if(runtimeList.empty())
+    {
+        runtimeList.add(runtime);
+    }
+
+    std::cout << "\n\nsnpe.get() before: " << snpe.get() << "\n";
+
+    snpe = snpeBuilder.setOutputLayers({})
+       .setRuntimeProcessorOrder(runtimeList)
+       .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
+    //    .setOutputLayers(outputNamesList)
+        .setOutputTensors(outputNamesList)
+    //    .setPlatformConfig(platformConfig)
+    //    .setInitCacheMode(useCaching)
+    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .build();
+    
+    std::cout << "\n\nsnpe.get() after: " << snpe.get() << "\n";
+    // exit(0);
+
+    return snpe;
+}
 
 std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(
     std::unique_ptr<zdl::DlContainer::IDlContainer> & container,

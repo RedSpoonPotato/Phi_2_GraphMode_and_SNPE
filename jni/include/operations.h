@@ -112,17 +112,23 @@ void printTensor2(const T* tensor, const std::vector<size_t>& shape) {
     assert(shape.size() == shape_size);
 
     if (shape.end()[-shape_size] <= 2*PRINT_SIZE) {
-        assert(shape.end()[-shape_size] >= 2*PRINT_SIZE);
+        assert(shape.end()[-1] >= 2*PRINT_SIZE);
         for (size_t i = 0; i < shape.end()[-shape_size]; i++) {
             std::cout << "[";
-            // print first
-            for (size_t j = 0; j < PRINT_SIZE; j++) {
-                std::cout << tensor[i*offset + j] << ",";
-            }
-            std::cout << " ..., ";
-            // print last
-            for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
-                std::cout << tensor[i*offset + j] << ",";
+            if (shape.end()[-1] <= 2*PRINT_SIZE) {
+                for (size_t j = 0; j < shape.end()[-1]; j++ ) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
+            } else {
+                // print first
+                for (size_t j = 0; j < PRINT_SIZE; j++) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
+                std::cout << " ..., ";
+                // print last
+                for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
             }
             std::cout << "],\n";
         }
@@ -130,16 +136,24 @@ void printTensor2(const T* tensor, const std::vector<size_t>& shape) {
     else {
         assert(shape.end()[-shape_size] >= 2*PRINT_SIZE);
         std::cout << "[\n";
+        
         for (size_t i = 0; i < PRINT_SIZE; i++) {
             std::cout << "[";
-            // print first
-            for (size_t j = 0; j < PRINT_SIZE; j++) {
-                std::cout << tensor[i*offset + j] << ",";
+            if (shape.end()[-1] <= 2*PRINT_SIZE) {
+                for (size_t j = 0; j < shape.end()[-1]; j++ ) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
             }
-            std::cout << " ..., ";
-            // print last
-            for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
-                std::cout << tensor[i*offset + j] << ",";
+            else {
+                // print first
+                for (size_t j = 0; j < PRINT_SIZE; j++) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
+                std::cout << " ..., ";
+                // print last
+                for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
             }
             std::cout << "],\n";
         }
@@ -148,14 +162,20 @@ void printTensor2(const T* tensor, const std::vector<size_t>& shape) {
 
         for (size_t i = shape.end()[-shape_size] - PRINT_SIZE; i < shape.end()[-shape_size]; i++) {
             std::cout << "[";
-            // print first
-            for (size_t j = 0; j < PRINT_SIZE; j++) {
-                std::cout << tensor[i*offset + j] << ",";
-            }
-            std::cout << " ..., ";
-            // print last
-            for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
-                std::cout << tensor[i*offset + j] << ",";
+            if (shape.end()[-1] <= 2*PRINT_SIZE) {
+                for (size_t j = 0; j < shape.end()[-1]; j++ ) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
+            } else {
+                // print first
+                for (size_t j = 0; j < PRINT_SIZE; j++) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
+                std::cout << " ..., ";
+                // print last
+                for (size_t j = shape.end()[-shape_size + 1] - PRINT_SIZE; j < shape.end()[-shape_size + 1]; j++) {
+                    std::cout << tensor[i*offset + j] << ",";
+                }
             }
             std::cout << "],\n";
         }
@@ -418,7 +438,6 @@ void layernorm_Nd_32f(
 
 template <typename T>
 size_t Argmax(const T* ptr, const size_t len) {
-    assert(shape.size() == 2);
     size_t max_index = 0;
     T max = std::numeric_limits<T>::lowest();
     for (size_t i = 0; i < len; i++) {
@@ -1364,6 +1383,12 @@ void DynamicTruncationAndConcatentation(
             value_cache_shape, value_shape
         );
     }
+
+    // extra steps b/c using P2_reshaped instead of P2_buffered
+
+    // transpose(
+    //     dwdw,
+    // );
 
     std::cout << "\nfinal shapes for DynamicTruncationAndConcatentation():\n";
     printV("key_cache_shape", key_cache_shape);
