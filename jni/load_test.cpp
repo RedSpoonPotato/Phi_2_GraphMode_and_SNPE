@@ -51,16 +51,21 @@ int main(int argc, char** argv) {
     std::set<std::string> model_names;
     for (int i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        model_names.insert("P1_1_reshaped_layer_" + i_str);
+        model_names.insert("P1_Q_reshaped_layer_" + i_str);
+        model_names.insert("P1_K_reshaped_layer_" + i_str);
+        model_names.insert("P1_V_reshaped_layer_" + i_str);
+        model_names.insert("P1_FC1_reshaped_layer_" + i_str);
         model_names.insert("P1_2_reshaped_layer_" + i_str);
         model_names.insert("P4_1_reshaped_layer_" + i_str);
     }
-    model_names.insert("gelu"); // might fail to reshape, if so, just implement manually in executable
-    model_names.insert("P2_1_first_buffered");
-    model_names.insert("P2_not_first_reshaped");
-    model_names.insert("P3_first_buffered");
+    // model_names.insert("gelu"); // might fail to reshape, if so, just implement manually in executable
+    model_names.insert("P2_reshaped");
+    // model_names.insert("P2_1_first_buffered");
+    // model_names.insert("P2_not_first_reshaped");
+    model_names.insert("P3_reshaped");
+    // model_names.insert("P3_first_buffered");
     // model_names.insert("P3_not_first_reshaped"); // this had problems so using buffered version instead to avoid reshaping
-    model_names.insert("P3_not_first_buffered");
+    // model_names.insert("P3_not_first_buffered");
     model_names.insert("P4_2_reshaped");
     model_names.insert("Final_LM_Head");
 

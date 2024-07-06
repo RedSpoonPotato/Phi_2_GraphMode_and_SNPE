@@ -178,6 +178,8 @@ std::string modelLaunch(
             std::cout << "\t\t\t--CHECKPOINT F--\n";
         #endif
 
+        // might need to be changed to account for some models that will and won't be qunatized
+        // maybe shouild attach a quantization flag to each modelRuneitme
         create_user_buffers(*models, datasize, isTFBuffer);
 
         #ifdef DEBUG
@@ -219,9 +221,19 @@ std::string modelLaunch(
 
     /* tokenizer encode */
     // "What is your favorite color?. Mine is red."
- 
+
     std::vector<uint32_t> tot_token_seq;
     tot_token_seq = tokenizer_ptr->generate(input_txt);
+
+    {
+        // REMOVE LATER
+        // tot_token_seq = std::vector<uint32_t>{(uint32_t)5, (uint32_t)5};
+        tot_token_seq = std::vector<uint32_t>();
+        for (int i =0; i < 42; i++) {
+            tot_token_seq.push_back((uint32_t)5);
+        }
+    }
+
     for (int i = 0; i < tot_token_seq.size(); i++) { position_ids.push_back(i); }
 
     #ifdef DEBUG
@@ -238,6 +250,48 @@ std::string modelLaunch(
     //  these are intially the same
     size_t tot_seq_len  = tot_token_seq.size();
     size_t seq_len      = token_seq.size();
+
+    /* NEED TO IMPLEMENT INITIAL RESHAPING */
+    std::cout << "calling reshapeStuff\n";
+
+    // reshapeModels(*models, "P2_reshaped",
+    // {
+    //     {"query_states:0", {32, 1, 80}},
+    //     {"key_states:0", {32, 13, 80}}
+    // }, sizeof(UNQUANT_TYPE));
+    // execute(*models, "P2_reshaped", quantize);
+
+
+    // reshapeModels(*models, "P3_reshaped",
+    // {
+    //     {"attn_weights:0", {32, 1, 13}},
+    //     {"value_states:0", {32, 13, 80}}
+    // }, sizeof(QUANT_TYPE));
+    // execute(*models, "P3_reshaped", false);
+
+    
+    // reshapeModels(*models, "P3_not_first_reshaped",
+    // {
+    //     {"attn_weights:0", {32, seq_len, seq_len}},
+    //     {"value_states:0", {32, seq_len, 80}}
+    // }, sizeof(QUANT_TYPE));
+    // std::cout << "running\n";
+    // execute(*models, "P3_not_first_reshaped", false);
+    
+    // reshapeModels(*models, "P3_first_buffered",
+    // {
+    //     {"attn_weights:0", {32, 2, seq_len}},
+    //     {"value_states:0", {32, seq_len, 80}}
+    // }, sizeof(QUANT_TYPE));
+    // std::cout << "running\n";
+    // execute(*models, "P3_first_buffered", false);
+
+    std::cout << "done\n";
+    // exit(0);
+
+    std::cout << "\n\n CALLING reshapeInitial\n\n";
+    reshapeInitial(models, seq_len, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE));
+    std::cout << "\n\n FINISHED CALLING reshapeIntial\n\n";
 
     for (uint32_t iteration_num = 0; iteration_num < max_iterations; iteration_num++) {
 
@@ -273,7 +327,8 @@ std::string modelLaunch(
             (float*)((*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()),
             tot_seq_len, 
             iteration_num,
-            (float*)buff_8.data() // intermediate buffer
+            false
+            // (float*)buff_8.data() // intermediate buffer
         );
 
         // {
@@ -310,36 +365,34 @@ std::string modelLaunch(
                 (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), // buff_1
                 layernorm_weights[i].data(), 
                 layernorm_biases[i].data(), 
-                (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(), // buff_8
+                (float*)(*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(), // buff_8
                 residual_shape,
                 1e-5
             );
-
-
 
             printN("first row of output buffer after layernorm: ", (float*)buff_8.data(), 10, false);
             printN("second row of output buffer after layernorm: ", (float*)buff_8.data() + HIDDEN_SIZE, 10, false);
 
             #ifdef DEBUG
-            printTensor(
-                "residual", 
-                (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), 
-                residual_shape
-            );
-            printTensor(
-                "LayerNorm #" + i_str, 
-                (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
-                residual_shape
-            );
+            // printTensor(
+            //     "residual", 
+            //     (float*)(*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(), 
+            //     residual_shape
+            // );
+            // printTensor(
+            //     "LayerNorm #" + i_str, 
+            //     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
+            //     residual_shape
+            // );
             #endif
 
             if (quantize) {
                 // need to quantize (not sure if fixed or unfixed)
                 FloatToTfN(
-                    (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
+                    (*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
                     decoderQuantParams[i].at("hidden_states"),
                     false,
-                    (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
+                    (float*)(*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"]->data(),
                     seq_len * HIDDEN_SIZE,
                     8
                 );
@@ -385,7 +438,12 @@ std::string modelLaunch(
 
 
 
-            execute(*models, "P1_1_reshaped_layer_" + i_str, quantize);
+            // execute(*models, "P1_1_reshaped_layer_" + i_str, quantize); //put back in
+            execute(*models, "P1_Q_reshaped_layer_" + i_str, quantize);
+            execute(*models, "P1_K_reshaped_layer_" + i_str, quantize);
+            execute(*models, "P1_V_reshaped_layer_" + i_str, quantize);
+            execute(*models, "P1_FC1_reshaped_layer_" + i_str, quantize);
+
 
             {
                 // // rremove later
@@ -410,7 +468,7 @@ std::string modelLaunch(
                 // need to dequantize (not sure if fixed or unfixed)
                 TfNToFloat(
                     (float*)buff_8.data(),
-                    (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"]->data(),
+                    (*models)["P1_FC1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"]->data(),
                     decoderQuantParams[i].at("fc1_out"),
                     seq_len * INTERMEDIATE_SIZE,
                     8
@@ -545,28 +603,28 @@ std::string modelLaunch(
                 // UnQuantize (query_states)(buff_3) (buff_8 as intermediate)
                 TfNToFloat(
                     (float*)buff_8.data(),
-                    (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+                    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"]->data(),
                     decoderQuantParams[i].at("query_states"),
                     seq_len * INTERMEDIATE_SIZE,
                     8
                 );
                 copyTensor(
                     (float*)buff_8.data(), 
-                    (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+                    (float*)(*models)["P2_reshaped"].applicationInputBuffers["query_states:0"]->data(),
                     {seq_len, INTERMEDIATE_SIZE}
                 );
 
                 // UnQuantize (key_states)(buff_4) (buff_8 as intermediate)
                 TfNToFloat(
                     (float*)buff_8.data(),
-                    (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+                    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"]->data(),
                     decoderQuantParams[i].at("query_states"),
                     seq_len * INTERMEDIATE_SIZE,
                     8
                 );
                 copyTensor(
                     (float*)buff_8.data(), 
-                    (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
+                    (float*)(*models)["P2_reshaped"].applicationInputBuffers["query_states:0"]->data(),
                     {seq_len, INTERMEDIATE_SIZE}
                 );
             }
@@ -583,7 +641,7 @@ std::string modelLaunch(
                     (UNQUANT_TYPE)1,
                     (QUANT_TYPE)1
                 );
-                execute(*models, "P2_1_first_buffered", false);
+                execute(*models, "P2_reshaped", false);
 
                 {
                     // remove later
@@ -599,29 +657,29 @@ std::string modelLaunch(
                     //     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"]->data(),
                     //     {32, MAX_SEQ_LEN, 80}
                     // );
-                    printTensorColumn(
-                        "attn_weights BEFORE SOFTMAX columns",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                    );
-                    printTensorColumn(
-                        "attn_weights BEFORE SOFTMAX columns",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                        1
-                    );
-                    printTensorColumn(
-                        "attn_weights BEFORE SOFTMAX columns",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                        2
-                    );
-                    printTensorColumn(
-                        "attn_weights BEFORE SOFTMAX columns",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                        MAX_SEQ_LEN-1
-                    );
+                    // printTensorColumn(
+                    //     "attn_weights BEFORE SOFTMAX columns",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                    // );
+                    // printTensorColumn(
+                    //     "attn_weights BEFORE SOFTMAX columns",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     1
+                    // );
+                    // printTensorColumn(
+                    //     "attn_weights BEFORE SOFTMAX columns",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     2
+                    // );
+                    // printTensorColumn(
+                    //     "attn_weights BEFORE SOFTMAX columns",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     MAX_SEQ_LEN-1
+                    // );
                     // exit(0);
                 }
 
@@ -631,36 +689,36 @@ std::string modelLaunch(
                 bufferedSoftmax(
                     {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
                     attn_weights_shape,
-                    (float*)(*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"]->data()
+                    (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data()
                 );
 
                 //remove later
                 {
                     // bufferedToReshapedAfterP2first(seq_len, models, (QUANT_TYPE)2, "P2_1 first after softmax");
 
-                    printTensorColumn(
-                        "attn_weights",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                    );
-                    printTensorColumn(
-                        "attn_weights",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                        1
-                    );
-                    printTensorColumn(
-                        "attn_weights",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                        2
-                    );
-                    printTensorColumn(
-                        "attn_weights",
-                        (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                        {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                        MAX_SEQ_LEN-1
-                    );
+                    // printTensorColumn(
+                    //     "attn_weights",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                    // );
+                    // printTensorColumn(
+                    //     "attn_weights",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     1
+                    // );
+                    // printTensorColumn(
+                    //     "attn_weights",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     2
+                    // );
+                    // printTensorColumn(
+                    //     "attn_weights",
+                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                    //     MAX_SEQ_LEN-1
+                    // );
 
                     // printTensor(
                     //     "attn_weights",
@@ -682,16 +740,18 @@ std::string modelLaunch(
                     // qunatize
                     // attn_weights (buff_8)
                 }
-                execute(*models, "P3_first_buffered", quantize);
+                // execute(*models, "P3_first_buffered", quantize);
+                execute(*models, "P3_reshaped", quantize);
                 attn_output_shape = {1, seq_len, HIDDEN_SIZE};
             }
             else {
-                execute(*models, "P2_not_first_reshaped", false);
+                execute(*models, "P2_reshaped", false);
                 if (quantize) {
                         // qunatize
                 }
                 reshapeToBufferedBeforeP3notFirst(tot_seq_len, (QUANT_TYPE*)buff_3.data(), models);
-                execute(*models, "P3_not_first_buffered", quantize);
+                // execute(*models, "P3_not_first_buffered", quantize);
+                execute(*models, "P3_reshaped", quantize);
             }
 
             // the 2 is a dummy val for the template
