@@ -3,7 +3,7 @@ import math
 import bert
 import my_phi_gm
 
-TOT_SEQ_LEN = 11 # will be 12 on 2nd+ iterations
+TOT_SEQ_LEN = 11 # will be 12 on 2nd iteration
 SEQ_LEN = 11 # will be 1 on 2nd+ iterations
 MAX_SEQ_LEN = 2048
 HIDDEN_SIZE = 2560
@@ -12,27 +12,50 @@ NUM_HEADS = 32
 LN_EPS = 1e-5
 one = 1
     
-class PhiDecodeP1_1_reshaped_new_quant(tf.Module):
-    def __init__(self, config, params, name=None):
+class PhiDecodeP1_Q_reshaped_new_quant(tf.Module):
+    def __init__(self, params, name=None):
         super().__init__(name)
-        # self.input_layernorm = bert.LayerNorm(params['layernorm_weight'], params['layernorm_bias'], eps=config.layer_norm_eps)
         self.q_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['q_proj_weight'], params['q_proj_bias'])
-        self.k_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['k_proj_weight'], params['k_proj_bias'])
-        self.v_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['v_proj_weight'], params['v_proj_bias'])
-        self.fc1 = bert.Dense_v2(config.hidden_size, config.intermediate_size,
-                            params['mlp_fc1_weight'], params['mlp_fc1_bias'])
     @tf.function(input_signature=[tf.TensorSpec(shape=[SEQ_LEN, HIDDEN_SIZE], dtype=tf.float32)])
     def __call__(self, hidden_states):
         query_states = self.q_proj(hidden_states)
+        return {
+            "query_states": query_states
+        }
+
+class PhiDecodeP1_K_reshaped_new_quant(tf.Module):
+    def __init__(self, params, name=None):
+        super().__init__(name)
+        self.k_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['k_proj_weight'], params['k_proj_bias'])
+    @tf.function(input_signature=[tf.TensorSpec(shape=[SEQ_LEN, HIDDEN_SIZE], dtype=tf.float32)])
+    def __call__(self, hidden_states):
         key_states = self.k_proj(hidden_states)
+        return {
+            "key_states": key_states
+        }
+
+class PhiDecodeP1_V_reshaped_new_quant(tf.Module):
+    def __init__(self, params, name=None):
+        super().__init__(name)
+        self.v_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['v_proj_weight'], params['v_proj_bias'])
+    @tf.function(input_signature=[tf.TensorSpec(shape=[SEQ_LEN, HIDDEN_SIZE], dtype=tf.float32)])
+    def __call__(self, hidden_states):
         value_states = self.v_proj(hidden_states)
+        return {
+            "value_states": value_states
+        }
+
+class PhiDecodeP1_FC1_reshaped_new_quant(tf.Module):
+    def __init__(self, config, params, name=None):
+        super().__init__(name)
+        self.fc1 = bert.Dense_v2(config.hidden_size, config.intermediate_size, params['mlp_fc1_weight'], params['mlp_fc1_bias'])
+    @tf.function(input_signature=[tf.TensorSpec(shape=[SEQ_LEN, HIDDEN_SIZE], dtype=tf.float32)])
+    def __call__(self, hidden_states):
         fc1_out = self.fc1(hidden_states)
         return {
-            "query_states": query_states,
-            "key_states": key_states,
-            "value_states": value_states,
             "fc1_out" : fc1_out
         }
+
 
 # implement this this as C++ code, you could implement this as its own dlc later
 class NewGELU(tf.Module):
@@ -73,7 +96,7 @@ for PhiDecodeP1:
 
 
 # mask shape: 1st: (11, 11), 2nd: (1,12) could make 2 differnt dlcs for this purpose
-
+ 
 class PhiDecodeP2_1_first_buffered_unquant_fp32(tf.Module):
     def __init__(self, config, name=None):
         super().__init__(name)
@@ -133,26 +156,44 @@ class PhiDecodeP2_not_first_reshaped_unquant_fp32(tf.Module):
             input_signature=[
                 tf.TensorSpec(shape=[SEQ_LEN, 32, 80], dtype=tf.float32),
                 tf.TensorSpec(shape=[TOT_SEQ_LEN, 32, 80], dtype=tf.float32),
-                tf.TensorSpec(shape=[TOT_SEQ_LEN], dtype=tf.float32),
                   # mask shape: 1st: (11, 11), 2nd: (1,12) could make 2 differnt dlcs for this purpose
                              ])
     def __call__(self, 
                  query_states_0, 
-                 key_states_0, 
-                 attention_mask):
+                 key_states_0):
         query_states = tf.transpose(query_states_0, perm=(1,0,2)) # {32, 1, 80}
         key_states = tf.transpose(key_states_0, perm=(1,0,2)) # {32, 11, 80}
         attn_weights = tf.matmul(
             tf.cast(query_states, dtype=tf.float32), 
             tf.transpose(key_states, perm=(0, 2, 1)) # {32, 80, 11}
         ) / math.sqrt(self.head_dim) # {32, 1, 11}
-        attn_weights = attn_weights + tf.reshape(attention_mask, [1, TOT_SEQ_LEN])
-        # upcast attention to fp32
-        attn_weights = tf.nn.softmax(attn_weights, axis=-1)
         return {
             "attn_weights": attn_weights
         }
 
+# COULD OPTMIZE THIS BY MERGING THE KEY_STATES TRANSPOSE
+class PhiDecodeP2_reshaped_unquant_fp32(tf.Module):
+    def __init__(self, config, name=None):
+        super().__init__(name)
+        self.hidden_size = HIDDEN_SIZE
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+    @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[32, SEQ_LEN, 80], dtype=tf.float32),
+                tf.TensorSpec(shape=[32, TOT_SEQ_LEN, 80], dtype=tf.float32),
+                  # mask shape: 1st: (11, 11), 2nd: (1,12) could make 2 differnt dlcs for this purpose
+                             ])
+    def __call__(self, 
+                 query_states, 
+                 key_states):
+        attn_weights = tf.matmul(
+            tf.cast(query_states, dtype=tf.float32), # {32, seq_len, 80}
+            tf.transpose(key_states, perm=(0, 2, 1)) # {32, 80, tot_seq_len}
+        ) / math.sqrt(self.head_dim) # {32, seq_len, tot_seq_len}
+        return {
+            "attn_weights": attn_weights
+        }
 
 """
 Proposal: 
@@ -163,37 +204,19 @@ Proposal:
             - dont have to do as many reshapes in this one I think
 """
 
+# need to regenerate the dlc and quantized dlc
 class PhiDecodeP3_first_buffered_quant(tf.Module):
     def __init__(self, name=None):
         super().__init__(name)
     @tf.function(
             input_signature=[
-                tf.TensorSpec(shape=[MAX_SEQ_LEN, 32, 80], dtype=tf.float32),
                 tf.TensorSpec(shape=[32, MAX_SEQ_LEN, MAX_SEQ_LEN], dtype=tf.float32),
+                tf.TensorSpec(shape=[32, MAX_SEQ_LEN, 80], dtype=tf.float32),
             ])
-    def __call__(self, value_states_0, attn_weights):
-        value_states = tf.transpose(value_states_0, perm=(1, 0, 2))
+    def __call__(self, attn_weights, value_states):
         attn_output = tf.matmul(attn_weights, value_states)
-        attn_output = tf.transpose(attn_output, perm=(1, 0, 2))
-        attn_output = tf.reshape(attn_output, (MAX_SEQ_LEN, HIDDEN_SIZE))
-        return {
-            "attn_output": attn_output
-        }
-
-class PhiDecodeP3_not_first_reshaped_quant(tf.Module):
-    def __init__(self, name=None):
-        super().__init__(name)
-    @tf.function(
-            input_signature=[
-                tf.TensorSpec(shape=[TOT_SEQ_LEN, 32, one], dtype=tf.float32),
-                tf.TensorSpec(shape=[TOT_SEQ_LEN, 32, 80], dtype=tf.float32),
-            ])
-    def __call__(self, attn_weights_0, value_states_0):
-        attn_weights = tf.transpose(attn_weights_0, perm=(1, 2, 0)) # {32, 1, 11}
-        value_states = tf.transpose(value_states_0, perm=(1, 0, 2)) # {32, 11, 80}
-        attn_output = tf.matmul(attn_weights, value_states) # {32, 1, 80}
-        attn_output = tf.transpose(attn_output, perm=(1, 0, 2))
-        attn_output = tf.reshape(attn_output, (one, HIDDEN_SIZE))
+        # attn_output = tf.transpose(attn_output, perm=(1, 0, 2))
+        # attn_output = tf.reshape(attn_output, (MAX_SEQ_LEN, HIDDEN_SIZE))
         return {
             "attn_output": attn_output
         }
@@ -211,6 +234,37 @@ class PhiDecodeP3_not_first_buffered_quant(tf.Module):
         attn_output = tf.matmul(attn_weights, value_states)
         attn_output = tf.transpose(attn_output, perm=(1, 0, 2))
         attn_output = tf.reshape(attn_output, (one, HIDDEN_SIZE))
+        return {
+            "attn_output": attn_output
+        }
+
+class PhiDecodeP3_not_first_reshaped_quant_alt(tf.Module):
+    def __init__(self, name=None):
+        super().__init__(name)
+    @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[32, 1, SEQ_LEN], dtype=tf.float32),
+                tf.TensorSpec(shape=[32, SEQ_LEN, 80], dtype=tf.float32),
+            ])
+    def __call__(self, attn_weights, value_states):
+        attn_output = tf.matmul(attn_weights, value_states) # 32, 1, 80
+        attn_output = tf.transpose(attn_output, perm=(1, 0, 2)) # 1, 32, 80
+        # attn_output = tf.reshape(attn_output, (one, HIDDEN_SIZE)) # 1, 2560
+        return {
+            "attn_output": attn_output
+        }
+    
+class PhiDecodeP3_reshaped_quant(tf.Module):
+    def __init__(self, name=None):
+        super().__init__(name)
+    @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[32, SEQ_LEN, TOT_SEQ_LEN], dtype=tf.float32),
+                tf.TensorSpec(shape=[32, TOT_SEQ_LEN, 80], dtype=tf.float32),
+            ])
+    def __call__(self, attn_weights, value_states):
+        attn_output = tf.matmul(attn_weights, value_states) # 32, 1, 80
+        attn_output = tf.transpose(attn_output, perm=(1, 0, 2)) # 1, 32, 80
         return {
             "attn_output": attn_output
         }
@@ -249,8 +303,20 @@ class PhiDecodeP4_2_reshaped_unquant(tf.Module):
         return {
             "decoder_output": decoder_output
         }
-    
 
+class PhiFinalLMHead_quant(tf.Module):
+    def __init__(self, params, config, name=None):
+        super().__init__(name)
+        self.dense = bert.Dense_v2(config.hidden_size, config.vocab_size, params['lm_head_weight'], params['lm_head_bias'])
+    @tf.function(
+        input_signature=[
+            tf.TensorSpec(shape=[SEQ_LEN, HIDDEN_SIZE], dtype=tf.float32),
+        ])
+    def __call__(self, final_input):
+        final_output = self.dense(final_input)
+        return {
+            "final_output": final_output
+        }
 #########################################################################################
 # TESTING
 
@@ -349,6 +415,93 @@ class PhiDecodeP3_not_first_reshaped_test(tf.Module):
 #########################################################################################
 
 # OLD STUFF
+
+# COULD OPTMIZE THIS BY MERGING THE KEY_STATES TRANSPOSE
+class PhiDecodeP2_not_first_reshaped_unquant_fp32_old(tf.Module):
+    def __init__(self, config, name=None):
+        super().__init__(name)
+        self.hidden_size = HIDDEN_SIZE
+        self.num_heads = config.num_attention_heads
+        self.head_dim = self.hidden_size // self.num_heads
+    @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[SEQ_LEN, 32, 80], dtype=tf.float32),
+                tf.TensorSpec(shape=[TOT_SEQ_LEN, 32, 80], dtype=tf.float32),
+                tf.TensorSpec(shape=[TOT_SEQ_LEN], dtype=tf.float32),
+                  # mask shape: 1st: (11, 11), 2nd: (1,12) could make 2 differnt dlcs for this purpose
+                             ])
+    def __call__(self, 
+                 query_states_0, 
+                 key_states_0, 
+                 attention_mask):
+        query_states = tf.transpose(query_states_0, perm=(1,0,2)) # {32, 1, 80}
+        key_states = tf.transpose(key_states_0, perm=(1,0,2)) # {32, 11, 80}
+        attn_weights = tf.matmul(
+            tf.cast(query_states, dtype=tf.float32), 
+            tf.transpose(key_states, perm=(0, 2, 1)) # {32, 80, 11}
+        ) / math.sqrt(self.head_dim) # {32, 1, 11}
+        attn_weights = attn_weights + tf.reshape(attention_mask, [1, TOT_SEQ_LEN])
+        # upcast attention to fp32
+        attn_weights = tf.nn.softmax(attn_weights, axis=-1)
+        return {
+            "attn_weights": attn_weights
+        }
+
+class PhiDecodeP1_1_reshaped_new_quant(tf.Module):
+    def __init__(self, config, params, name=None):
+        super().__init__(name)
+        self.q_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['q_proj_weight'], params['q_proj_bias'])
+        self.k_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['k_proj_weight'], params['k_proj_bias'])
+        self.v_proj = bert.Dense_v2(HIDDEN_SIZE, HIDDEN_SIZE, params['v_proj_weight'], params['v_proj_bias'])
+        self.fc1 = bert.Dense_v2(config.hidden_size, config.intermediate_size,
+                            params['mlp_fc1_weight'], params['mlp_fc1_bias'])
+    @tf.function(input_signature=[tf.TensorSpec(shape=[SEQ_LEN, HIDDEN_SIZE], dtype=tf.float32)])
+    def __call__(self, hidden_states):
+        query_states = self.q_proj(hidden_states)
+        key_states = self.k_proj(hidden_states)
+        value_states = self.v_proj(hidden_states)
+        fc1_out = self.fc1(hidden_states)
+        return {
+            "query_states": query_states,
+            "key_states": key_states,
+            "value_states": value_states,
+            "fc1_out" : fc1_out
+        }
+
+class PhiDecodeP3_not_first_reshaped_quant(tf.Module):
+    def __init__(self, name=None):
+        super().__init__(name)
+    @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[TOT_SEQ_LEN, 32, one], dtype=tf.float32),
+                tf.TensorSpec(shape=[TOT_SEQ_LEN, 32, 80], dtype=tf.float32),
+            ])
+    def __call__(self, attn_weights_0, value_states_0):
+        attn_weights = tf.transpose(attn_weights_0, perm=(1, 2, 0)) # {32, 1, 11}
+        value_states = tf.transpose(value_states_0, perm=(1, 0, 2)) # {32, 11, 80}
+        attn_output = tf.matmul(attn_weights, value_states) # {32, 1, 80}
+        attn_output = tf.transpose(attn_output, perm=(1, 0, 2))
+        attn_output = tf.reshape(attn_output, (one, HIDDEN_SIZE))
+        return {
+            "attn_output": attn_output
+        }
+
+class PhiDecodeP3_first_buffered_quant_old(tf.Module):
+    def __init__(self, name=None):
+        super().__init__(name)
+    @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=[MAX_SEQ_LEN, 32, 80], dtype=tf.float32),
+                tf.TensorSpec(shape=[32, MAX_SEQ_LEN, MAX_SEQ_LEN], dtype=tf.float32),
+            ])
+    def __call__(self, value_states_0, attn_weights):
+        value_states = tf.transpose(value_states_0, perm=(1, 0, 2))
+        attn_output = tf.matmul(attn_weights, value_states)
+        attn_output = tf.transpose(attn_output, perm=(1, 0, 2))
+        attn_output = tf.reshape(attn_output, (MAX_SEQ_LEN, HIDDEN_SIZE))
+        return {
+            "attn_output": attn_output
+        }
 
 
 # could create a buffered verion if u want, time to really find out

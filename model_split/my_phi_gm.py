@@ -7,8 +7,6 @@ from typing import Optional, Union, Tuple, List
 
 import masking_utils_gm
 
-import numpy
-
 
 # note: Instead of using register buffers, I am just using normal variables, but 
 # this might cause issues when exporting models
@@ -18,14 +16,14 @@ import numpy
 - testing everything
 """
 
-
+@tf.function
 def Flatten(x):
     elements = 1
     for d in x.shape:
         elements *= d
     return tf.reshape(x, (elements))
 
-# 
+# @tf.function
 # def _get_unpad_data(attention_mask):
 #     assert(attention_mask.dtype == tf.int32)
 #     seqlens_in_batch = tf.cast(tf.math.reduce_sum(attention_mask, axis=-1), dtype=tf.int32)
@@ -48,9 +46,6 @@ class PhiRotaryEmbedding(tf.Module):
         self.base = base
         self.inv_freq = 1.0 / (self.base ** (tf.cast((tf.range(0, self.dim, 2)), dtype=tf.float32) / self.dim))
         self._set_cos_sin_cache(max_position_embeddings, dtype=tf.float16)
-        # SAVING THE TENSORs
-        # self.cos_cached.numpy().tofile('cos_cached.dat')
-        # self.sin_cached.numpy().tofile('sin_cached.dat')
         print("initial sin_cos size:", self.cos_cached.shape)
 
     def _set_cos_sin_cache(self, seq_len, dtype):
@@ -61,7 +56,7 @@ class PhiRotaryEmbedding(tf.Module):
         self.cos_cached = tf.cast(tf.cos(emb), dtype=dtype)
         self.sin_cached = tf.cast(tf.sin(emb), dtype=dtype)
 
-    
+    @tf.function
     def __call__(self, x, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
         if seq_len > self.max_seq_len_cached:
@@ -72,7 +67,6 @@ class PhiRotaryEmbedding(tf.Module):
             emb = tf.concat((freqs, freqs), axis=-1)
             self.cos_cached = tf.cast(tf.cos(emb), dtype=x.dtype)
             self.sin_cached = tf.cast(tf.sin(emb), dtype=x.dtype)
-        print("\tcos_cached_size:", self.cos_cached.shape)
         return (
             tf.cast(self.cos_cached[:seq_len], dtype=x.dtype),
             tf.cast(self.sin_cached[:seq_len], dtype=x.dtype),
@@ -82,7 +76,7 @@ class PhiLinearScalingRotaryEmbedding(PhiRotaryEmbedding):
     def __init__(self, dim, max_position_embeddings=2048, base=10000, scaling_factor=1.0):
         self.scaling_factor = scaling_factor
         super().__init__(dim, max_position_embeddings, base)
-    
+    @tf.function
     def _set_cos_sin_cache(self, seq_len, dtype):
         self.max_seq_len_cached = seq_len
         t = tf.range(self.max_seq_len_cached, dtype=self.inv_freq.dtype)
@@ -96,7 +90,7 @@ class PhiDynamicNTKScalingRotaryEmbedding(PhiRotaryEmbedding):
     def __init__(self, dim, max_position_embeddings=2048, base=10000, scaling_factor=1.0):
         self.scaling_factor = scaling_factor
         super().__init__(dim, max_position_embeddings, base)
-    
+    @tf.function
     def _set_cos_sin_cache(self, seq_len, dtype):
         self.max_seq_len_cached = seq_len
         if seq_len > self.max_position_embeddings:
@@ -111,35 +105,24 @@ class PhiDynamicNTKScalingRotaryEmbedding(PhiRotaryEmbedding):
         self.cos_cached = tf.cast(tf.cos(emb), dtype=dtype)
         self.sin_cached = tf.cast(tf.sin(emb), dtype=dtype)
 
-
+@tf.function
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
     x1 = x[..., : x.shape[-1] // 2]
     x2 = x[..., x.shape[-1] // 2 :]
     return tf.concat((-x2, x1), axis=-1)
 
-
+@tf.function
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids, unsqueeze_dim=1):
     """See orginal source for better description of what code does"""
-    print("cos shape before:", cos.shape)
-    print("gather of cos shape:", tf.gather(cos, position_ids).shape)
     cos = tf.expand_dims(tf.gather(cos, position_ids), axis=unsqueeze_dim)
     sin = tf.expand_dims(tf.gather(sin, position_ids), axis=unsqueeze_dim)
-    print("position ids", position_ids)
     print("q shape: ", q.shape)
     print("cos shape: ", cos.shape)
     print("k shape: ", k.shape)
     print("sin shape: ", sin.shape)
     print("(q * cos).shape", (q * cos).shape)
     print("(rotate_half(q) * sin).shape", (rotate_half(q) * sin).shape)
-    print("rotate_half(q)", rotate_half(q))
-    print("rotate_half(k)", rotate_half(k))
-    print("cos after expand dims", cos)
-    print("sin after expand dims", sin)
-    print("rotate_half(q) * sin", rotate_half(q) * sin)
-    print("rotate_half(k) * sin", rotate_half(k) * sin)
-    print("q * cos", q * cos)
-    print("k * cos", k * cos)
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
@@ -153,7 +136,7 @@ class PhiMLP_Config():
 class NewGELU(tf.Module):
     def __init__(self, name=None):
         super().__init__(name)
-    
+    @tf.function
     def __call__(self, input):
         return 0.5 * input * (1.0 + tf.tanh(math.sqrt(2.0 / math.pi) * (input + 0.044715 * tf.pow(input, 3.0))))
 
@@ -167,16 +150,14 @@ class PhiMLP(tf.Module):
                                   params['mlp_fc1_weight'], params['mlp_fc1_bias'])
         self.fc2 = bert.Dense_v2(config.intermediate_size, config.hidden_size, 
                                  params['mlp_fc2_weight'], params['mlp_fc2_bias'])
-    
+    @tf.function
     def __call__(self, hidden_states):
         hidden_states = self.fc1(hidden_states)
-        print("MLP fc1_out", hidden_states)
         hidden_states = self.activation_fn(hidden_states) # also the function is stateless (consider changing)
-        print("MLP gelu_out", hidden_states)
         hidden_states = self.fc2(hidden_states)
         return hidden_states
     
-
+@tf.function
 def repeat_kv(hidden_states, n_rep: int):
     batch, num_key_value_heads, slen, head_dim = hidden_states.shape
     if n_rep == 1:
@@ -255,7 +236,7 @@ class PhiAttention(tf.Module):
                 )
             else:
                 raise ValueError(f"Unknown RoPE scaling type {scaling_type}")
-    
+    @tf.function
     def __call__(
         self,
         hidden_states,
@@ -269,16 +250,10 @@ class PhiAttention(tf.Module):
         print("attention_mask.shape: ", attention_mask.shape)
         print("position_ids.shape:", position_ids.shape)
 
-        print("attention_mask:", attention_mask)
-
         
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
         value_states = self.v_proj(hidden_states)
-        # print("cheese!-----")
-        print("query_states.shape after proj:", query_states.shape)
-        print("query states <P1_1>", query_states)
-        print("key states <P1_1>", key_states)
 
         if self.qk_layernorm:
             query_states = self.q_layernorm(query_states)
@@ -287,16 +262,9 @@ class PhiAttention(tf.Module):
         query_states =  tf.reshape(query_states,[bsz, q_len, self.num_heads,           self.head_dim])
         key_states =    tf.reshape(key_states,  [bsz, q_len, self.num_key_value_heads, self.head_dim])
         value_states =  tf.reshape(value_states,[bsz, q_len, self.num_key_value_heads, self.head_dim])
-
-        print("query_states after reshape", query_states)
-        print("value_states after reshape", value_states)
-
         query_states =  tf.transpose(query_states,  perm=[0, 2, 1, 3])
         key_states =    tf.transpose(key_states,    perm=[0, 2, 1, 3])
         value_states =  tf.transpose(value_states,  perm=[0, 2, 1, 3])
-
-        print("query_states after transpose", query_states.shape)
-        print("key_states after transpose", key_states.shape)
 
         # added
         # print("past key value_old in decoder layer:", past_key_value_old)
@@ -323,11 +291,6 @@ class PhiAttention(tf.Module):
             if len(past_key_value) > self.layer_idx: # not first run
                 kv_seq_len += past_key_value[self.layer_idx][0].shape[-2] # seq_len
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len) # kv_seq_len will be differnt every single time
-        print("cos from rotary_emb", cos)
-        print("sin from rotary_emb", sin)
-        print("value-states shape:", value_states.shape)
-        # print("cos shape after rot_emb:", cos.shape)
-        # print("sin after rot_emb", sin)
 
         # Partial rotary embedding
         query_rot, query_pass = (
@@ -338,25 +301,12 @@ class PhiAttention(tf.Module):
             key_states[..., : self.rotary_emb.dim],
             key_states[..., self.rotary_emb.dim :],
         )
-
-        print("query_pass fter truncations", query_pass)
-        print("key_pass fter truncations", key_pass)
-
-        print("query_rot before apply_rot_pos_emb", query_rot)
-        print("key_rot before apply_rot_pos_emb", key_rot)
-
         # [batch_size, seq_length, num_heads, head_dim // config.partial_rotary_factor]
         query_rot, key_rot = apply_rotary_pos_emb(query_rot, key_rot, cos, sin, position_ids)
-
-        print("query_rot after apply_rotary_pos_emb", query_rot)
-        print("key_rot after apply_rotary_pos_emb", key_rot)
-        print("key_rot shape after apply_rotary_pos_emb", key_rot.shape)
         
         # [batch_size, seq_length, num_heads, head_dim]
         query_states = tf.concat((query_rot, query_pass), axis=-1)
         key_states = tf.concat((key_rot, key_pass), axis=-1)
-
-        print("key_states after concatenation", key_states.shape)
 
         print("layer_id: ", self.layer_idx)
         # print("past_key_value:", past_key_value)
@@ -367,7 +317,7 @@ class PhiAttention(tf.Module):
                 past_key_value.append([])
                 past_key_value[-1].append(key_states)
                 past_key_value[-1].append(value_states)
-                # print("past_key_value after appending:", past_key_value.shape)
+                # print("past_key_value after appending:", past_key_value)
             else:
                 past_key_value[self.layer_idx][0] = tf.concat([past_key_value[self.layer_idx][0], key_states], axis=-2)
                 past_key_value[self.layer_idx][1] = tf.concat([past_key_value[self.layer_idx][1], value_states], axis=-2)
@@ -379,22 +329,11 @@ class PhiAttention(tf.Module):
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
-        print("query_states.shape on P2", query_states.shape)
-        print("query_states on P2", query_states)
-        print("key_states.shape on P2", key_states.shape)
-        print("key-states on P2", key_states)
-        print("value_states.shape on P2", value_states.shape)
-        print("value_states on P2",  value_states)
-
         # Queries and keys upcast to fp32 is required by Phi-2 to avoid overflow
         attn_weights = tf.matmul(
             tf.cast(query_states, dtype=tf.float32), 
             tf.transpose(tf.cast(key_states, dtype=tf.float32), perm=(0, 1, 3, 2))
-        ) 
-
-        print("attn_weights after matmul but before sqrt", attn_weights.shape)
-
-        attn_weights /= math.sqrt(self.head_dim)
+        ) / math.sqrt(self.head_dim)
 
         if attn_weights.shape != (bsz, self.num_heads, q_len, kv_seq_len):
             raise ValueError(
@@ -402,29 +341,17 @@ class PhiAttention(tf.Module):
                 f" {attn_weights.size()}"
             )
 
-        print("attn-weight after first matmul and sqrt:",attn_weights.shape)
-        print("attn_weights <P2_1>", attn_weights)
-        print("attention_mask before applying mask:", attention_mask)
-
         if attention_mask is not None:
             if attention_mask.shape != (bsz, 1, q_len, kv_seq_len):
                 raise ValueError(
                     f"Attention mask should be of size {(bsz, 1, q_len, kv_seq_len)}, but is {attention_mask.size()}"
                 )
             attn_weights = attn_weights + tf.cast(attention_mask, dtype=tf.float32)
-        
-        print("attn_weights after applying mask", attn_weights.shape)
-        print("attn_weights after applying mask", attn_weights)
 
         # upcast attention to fp32
         attn_weights = tf.cast(tf.nn.softmax(tf.cast(attn_weights, dtype=tf.float32), axis=-1), dtype=value_states.dtype)
 
-        print("attn_weights.shape after softmaxing", attn_weights.shape)
-        print("attn_wegihts after softmaxing", attn_weights)
-
         attn_output = tf.matmul(attn_weights, value_states)
-
-        print("attn_output.shape after matmul", attn_output.shape)
 
         if attn_output.shape != (bsz, self.num_heads, q_len, self.head_dim):
             raise ValueError(
@@ -434,11 +361,7 @@ class PhiAttention(tf.Module):
 
         attn_output = tf.transpose(attn_output, perm=(0, 2, 1, 3))
         attn_output = tf.reshape(attn_output, (bsz, q_len, self.hidden_size))
-        print("attn_output after tranpose and reshaping", attn_output.shape)
-        print("attn_output <P3>", attn_output)
         attn_output = self.dense(attn_output)
-        print("attn_output after dense layer:", attn_output.shape)
-        print("attn_output <P4>", attn_output)
 
         if not output_attentions:
             attn_weights = None
@@ -461,7 +384,7 @@ class PhiDecoderLayer(tf.Module):
         self.input_layernorm = bert.LayerNorm(params['layernorm_weight'],
                                               params['layernorm_bias'],
                                               eps=config.layer_norm_eps)
-    # 
+    # @tf.function
     def __call__(
         self,
         hidden_states,
@@ -474,35 +397,9 @@ class PhiDecoderLayer(tf.Module):
         """
         see orginal code for description
         """
-
-        print("_______TESTING SIZES____")
-        print(hidden_states.shape)
-        print(attention_mask.shape)
-        print(position_ids.shape)
-        print("position ids: ", position_ids)
-        # print(past_key_value[0][0]
-
-        # print("residual:", hidden_states.shape)
-        print("residual:", hidden_states)
-
         # print("past_key_value in decoder:", past_key_value)
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
-
-        # print("epsilon: ", self.input_layernorm.eps)
-        # print("layernorm weight", self.input_layernorm.weights)
-        # print("layernorm biases", self.input_layernorm.biases)
-
-        # print("layernorm out:", hidden_states)
-
-        # print("first layernorm row")
-        # for i in range(10):
-        #     print(hidden_states[0][0][i])
-
-        # print("2nd layernorm row")
-        # for i in range(10):
-        #     print(hidden_states[0][1][i])
-
         # Self Attention
         attn_outputs, self_attn_weights, present_key_value = self.self_attn(
             hidden_states=hidden_states,
@@ -510,7 +407,7 @@ class PhiDecoderLayer(tf.Module):
             position_ids=position_ids,
             past_key_value_old=past_key_value,
             output_attentions=output_attentions,
-            use_cache=use_cache)        
+            use_cache=use_cache)
 
         # remove later
         # attn_outputs, self_attn_weights = self.self_attn(
@@ -522,11 +419,7 @@ class PhiDecoderLayer(tf.Module):
         #     use_cache=use_cache)
         
         feed_forward_hidden_states = self.mlp(hidden_states)
-        print("feed_forward_hidden_states.shape", feed_forward_hidden_states.shape)
-        print("feed forward hidden states:", feed_forward_hidden_states)
         hidden_states = attn_outputs + feed_forward_hidden_states + residual
-        print("hidden_states after sum in decoder:", hidden_states.shape)
-        print("hidden states after sum", hidden_states)
         outputs = (hidden_states,)
         if output_attentions:
             outputs += (self_attn_weights,)
@@ -553,7 +446,7 @@ class PhiModel(tf.Module):
         self.final_layernorm = bert.LayerNorm(params['final_layernorm_weight'], params['final_layernorm_bias'],
                                                eps=config.layer_norm_eps)
         self._use_flash_attention_2 = config._attn_implementation == "flash_attention_2" # should be False
-    
+    @tf.function
     def __call__(
         self,
         input_ids = None,
@@ -601,17 +494,13 @@ class PhiModel(tf.Module):
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        print("input_ids.dtype", input_ids.dtype)
-        print("input_ids", input_ids)
-        print("inputs_embeds.dtype", inputs_embeds.dtype)
-
         # Attention mask.
         # if self._use_flash_attention_2: # should be False
         #     # 2d mask is passed through the layers
         #     attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
         # else
 
-        # print("past_key_values before for loop", past_key_values)
+        print("past_key_values before for loop", past_key_values)
             
         # 4d mask is passed through the layers
         attention_mask = masking_utils_gm._prepare_4d_causal_attention_mask(
@@ -620,8 +509,6 @@ class PhiModel(tf.Module):
         )
 
         hidden_states = inputs_embeds
-
-        print("after embedding: hidden states shape:", hidden_states.shape)
 
         # decoder layers
         all_hidden_states = () if output_hidden_states else None
@@ -632,7 +519,7 @@ class PhiModel(tf.Module):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            # print("past_key_values", past_key_values) # remove later
+            print("past_key_values", past_key_values) # remove later
 
             layer_outputs = decoder_layer(
                 hidden_states,
@@ -686,7 +573,7 @@ class PhiForCausalLM(tf.Module):
         self.vocab_size = config.vocab_size
         self.lm_head = bert.Dense_v2(config.hidden_size, config.vocab_size,
                                       params['lm_head_weight'], params['lm_head_bias'])
-    
+    @tf.function
     def __call__(
         self,
         input_ids = None,
@@ -730,7 +617,6 @@ class PhiForCausalLM(tf.Module):
         hidden_states = outputs[0]
         # hidden_states = outputs.last_hidden_state
         logits = self.lm_head(hidden_states)
-        print("logits", logits)
         logits = tf.cast(logits, dtype=tf.float32) # maybe should be 64
 
         if not return_dict:
