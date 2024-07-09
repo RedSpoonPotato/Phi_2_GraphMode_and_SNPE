@@ -568,8 +568,11 @@ std::string intialize_model_runtime(
         #endif 
 
         /* new way of loading dlc */
-        loadFileAndResize(runtimes[model].dlc_buff, runtimes[model].dlc_path);
-        runtimes[model].container = loadContainerFromVector(runtimes[model].dlc_buff);
+        // loadFileAndResize(runtimes[model].dlc_buff, runtimes[model].dlc_path);
+        // runtimes[model].container = loadContainerFromVector(runtimes[model].dlc_buff);
+
+        // storage based way ()
+        runtimes[model].container = loadContainerFromFile(runtimes[model].dlc_path);
 
         #ifdef DEBUG
             auto end = std::chrono::high_resolution_clock::now();
@@ -962,6 +965,20 @@ void reshapeStuff(
     const size_t quant_datasize,
     const size_t unquant_datasize
 ) {
+
+
+    reshapeModels(*models, "P2_reshaped",
+    {
+        {"query_states:0", {32, 1, 80}},
+        {"key_states:0", {32, tot_seq_len, 80}}
+    }, unquant_datasize);
+
+    reshapeModels(*models, "P3_reshaped",
+    {
+        {"attn_weights:0", {32, 1, tot_seq_len}},
+        {"value_states:0", {32, tot_seq_len, 80}}
+    }, quant_datasize);
+
     if (iteration_num == 0) {
         // reshapeModels(*models, "gelu",
         //     {
@@ -1020,18 +1037,6 @@ void reshapeStuff(
             }, quant_datasize);
     }
 
-
-    reshapeModels(*models, "P2_reshaped",
-    {
-        {"query_states:0", {32, 1, 80}},
-        {"key_states:0", {32, tot_seq_len, 80}}
-    }, unquant_datasize);
-
-    reshapeModels(*models, "P3_reshaped",
-    {
-        {"attn_weights:0", {32, 1, tot_seq_len}},
-        {"value_states:0", {32, tot_seq_len, 80}}
-    }, quant_datasize);
 }
 
 void freeModels(std::vector<ModelRuntime>* models) {
@@ -1374,9 +1379,13 @@ void copyKV(T* in, T* out) {
 
 // iteration_num should first be 0
 template <typename T>
-void prepareMask(T* mask, size_t seq_len, size_t iteration_num, bool buffered, T* temp_buff=nullptr)
+std::vector<size_t> prepareMask(T* mask, size_t seq_len, size_t iteration_num, bool buffered=false, T* temp_buff=NULL)
 {
+    std::cout << "inside\n";
+    std::vector<size_t> mask_shape;
+
     if (iteration_num == 0) {
+        mask_shape = {seq_len, seq_len};
         // set mask
         // T lowest = std::numeric_limits<T>::lowest();
         T lowest = static_cast<T>(LOWEST); // fp16 min
@@ -1388,7 +1397,6 @@ void prepareMask(T* mask, size_t seq_len, size_t iteration_num, bool buffered, T
                 else            { mask[row*seq_len + col] = lowest; } 
             }
         }
-
         if (buffered) {
             // convert to buffered version
             reshaped_to_buffered(
@@ -1402,9 +1410,12 @@ void prepareMask(T* mask, size_t seq_len, size_t iteration_num, bool buffered, T
         }
     }
     else {
+        mask_shape = {seq_len};
         // set mask
         for (size_t i = 0; i < seq_len; i++) { mask[i] = 0; }
     }
+    std::cout << "returning\n";
+    return mask_shape;
 }
 
 // could template

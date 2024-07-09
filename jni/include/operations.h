@@ -46,6 +46,25 @@ void fp32_to_fp16(float* in, ushort* out, const std::vector<uint32_t>& dims) {
     }
 }
 
+size_t reduceDims(const std::vector<size_t>& shape, int numDims = -1) {
+    if (numDims == 0) {
+        // reduce among none
+        return 0;
+    }
+    else if (numDims < 0) {
+        // case for reducing among all elements
+        assert(numDims == -1);
+        numDims = shape.size();
+    }
+
+    assert(shape.size() >= numDims);
+    size_t numElem = shape.end()[-1];
+    for (int i = 2; i < numDims+1; i++) {
+        numElem *= shape.end()[-i];
+    } 
+    return numElem;
+}
+
 template <typename T>
 void printN(const std::string& str, const T* vec, const size_t N, bool quantize) {
     std::cout << str;

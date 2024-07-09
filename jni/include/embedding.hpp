@@ -33,8 +33,8 @@ void read_embedding(
         }
         fseek(fp, sizeof(T)*rowSize*input_ids[i], SEEK_SET);
         const size_t ret_code = fread(temp_arry.data(), sizeof(T), rowSize, fp); // read a row
-        std::cout << "first element of row in fp32:" <<  half_to_float(((ushort*)temp_arry.data())[0]) << "\n";
-        std::cout << "first element of row in fp32:" <<  ((float*)temp_arry.data())[0] << "\n";
+        // std::cout << "first element of row in fp32:" <<  half_to_float(((ushort*)temp_arry.data())[0]) << "\n";
+        // std::cout << "first element of row in fp32:" <<  ((float*)temp_arry.data())[0] << "\n";
         if (ret_code != rowSize) {
             std::cerr << "Error: number of elements read " << ret_code << " instead of " << rowSize <<
                         " for column "  << input_ids[i] << "\n";
