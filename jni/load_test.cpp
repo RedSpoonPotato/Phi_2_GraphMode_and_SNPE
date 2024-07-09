@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
     otherPaths["final_layernorm_bias"]      = "./fp16_test/model_split/data/final_layernorm_bias.bin";
 
     // other params
-    uint32_t max_iterations = 2;  // CHANGE THIS TO WHATEVER IT SHOULD BE
+    uint32_t max_iterations = 20;  // CHANGE THIS TO WHATEVER IT SHOULD BE
     int debugReturnCode = 20;
     uint32_t end_token_id = 1; // CHANGE THIS TO WHATEVER IT SHOULD BE
     bool use_end_token_id = false; // CHANGE THIS TO WHATEVER IT SHOULD BE
@@ -150,7 +150,7 @@ int main(int argc, char** argv) {
     //     end_token_id,
     //     use_end_token_id);
 
-    std::cout << "final result: " << output_str << "\n";
+    // std::cout << "final result: " << output_str << "\n";
 
     #ifdef DEBUG
         std::cout << "checkpoint 3\n";

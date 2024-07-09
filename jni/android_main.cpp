@@ -100,6 +100,9 @@ std::string modelLaunch(
     // static auto buff_9      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size);
     // static auto buff_10     =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size);
 
+    // explicit references
+    auto mask_ptr = (UNQUANT_TYPE*)buff_7.data();
+
     /* NOTE: REMEBER TO FILL THESE UP */
     static auto sin_cached  = std::vector<uint8_t>(SIN_COS_BUFF_SIZE * quant_size);
     static auto cos_cached  = std::vector<uint8_t>(SIN_COS_BUFF_SIZE * quant_size);
@@ -139,6 +142,7 @@ std::string modelLaunch(
     auto attn_weights_shape     = std::vector<size_t>();
     auto attn_output_shape      = std::vector<size_t>();
     auto decoder_output_shape   = std::vector<size_t>();
+    auto mask_shape             = std::vector<size_t>();
 
     // quantization params
     std::vector<std::map<std::string, quantParams>> decoderQuantParams = quantizationParams();
@@ -225,14 +229,14 @@ std::string modelLaunch(
     std::vector<uint32_t> tot_token_seq;
     tot_token_seq = tokenizer_ptr->generate(input_txt);
 
-    {
-        // REMOVE LATER
-        // tot_token_seq = std::vector<uint32_t>{(uint32_t)5, (uint32_t)5};
-        tot_token_seq = std::vector<uint32_t>();
-        for (int i =0; i < 42; i++) {
-            tot_token_seq.push_back((uint32_t)5);
-        }
-    }
+    // {
+    //     // REMOVE LATER
+    //     // tot_token_seq = std::vector<uint32_t>{(uint32_t)5, (uint32_t)5};
+    //     tot_token_seq = std::vector<uint32_t>();
+    //     for (int i =0; i < 42; i++) {
+    //         tot_token_seq.push_back((uint32_t)5);
+    //     }
+    // }
 
     for (int i = 0; i < tot_token_seq.size(); i++) { position_ids.push_back(i); }
 
@@ -323,8 +327,9 @@ std::string modelLaunch(
 
         /* generate mask */
         assert(float_size == 4); // otherwise chagne the casting of the mask pointer
-        prepareMask(
-            (float*)((*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()),
+        std::cout << "calling mask\n";
+        mask_shape = prepareMask(
+            mask_ptr,
             tot_seq_len, 
             iteration_num,
             false
@@ -369,6 +374,16 @@ std::string modelLaunch(
                 residual_shape,
                 1e-5
             );
+
+            // {
+            //     // remove later
+            //     if (iteration_num == 1 && i == 0) {
+            //         loadFileAndDontResize(
+            //             *(*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"],
+            //             "/home/kernal1/QM_Sandbox/htp/fp16_test/model_split/layer_norm_2nd_iteration.bin"
+            //         );
+            //     }
+            // }
 
             printN("first row of output buffer after layernorm: ", (float*)buff_8.data(), 10, false);
             printN("second row of output buffer after layernorm: ", (float*)buff_8.data() + HIDDEN_SIZE, 10, false);
@@ -631,131 +646,147 @@ std::string modelLaunch(
 
             std::cout << "\t\t\tFinished DynamicTruncationAndConcatentation() #" << i_str << "\n";
 
-            if (iteration_num == 0) {
-                // reshape_to_buff() {note: could optimize this by doing this before quantization}
-                reshapeToBufferedBeforeP2first(
-                    seq_len, 
-                    tot_seq_len,
-                    buff_8.data(),
-                    models,
-                    (UNQUANT_TYPE)1,
-                    (QUANT_TYPE)1
-                );
-                execute(*models, "P2_reshaped", false);
+            // reshape_to_buff() {note: could optimize this by doing this before quantization}
+            // reshapeToBufferedBeforeP2first(
+            //     seq_len, 
+            //     tot_seq_len,
+            //     buff_8.data(),
+            //     models,
+            //     (UNQUANT_TYPE)1,
+            //     (QUANT_TYPE)1
+            // );
+            execute(*models, "P2_reshaped", false);
 
-                {
-                    // remove later
-                    // seems ok
-                    // bufferedToReshapedAfterP2first(
-                    //     seq_len, 
-                    //     models, 
-                    //     (QUANT_TYPE)2, 
-                    //     "P2_1 output (attn_weights before softmaxing)"
-                    // ); // i dont think we need
-                    // printTensorColumn(
-                    //     "value_states after buffering",
-                    //     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, 80}
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights BEFORE SOFTMAX columns",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights BEFORE SOFTMAX columns",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     1
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights BEFORE SOFTMAX columns",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     2
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights BEFORE SOFTMAX columns",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     MAX_SEQ_LEN-1
-                    // );
-                    // exit(0);
-                }
-
-                
-
-                attn_weights_shape = {1, 32, seq_len, seq_len};
-                bufferedSoftmax(
-                    {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    attn_weights_shape,
-                    (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data()
-                );
-
-                //remove later
-                {
-                    // bufferedToReshapedAfterP2first(seq_len, models, (QUANT_TYPE)2, "P2_1 first after softmax");
-
-                    // printTensorColumn(
-                    //     "attn_weights",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     1
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     2
-                    // );
-                    // printTensorColumn(
-                    //     "attn_weights",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     MAX_SEQ_LEN-1
-                    // );
-
-                    // printTensor(
-                    //     "attn_weights",
-                    //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
-                    //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
-                    // );
-
-                    // printTensorColumn(
-                    //     "attention_mask ",
-                    //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
-                    //     {MAX_SEQ_LEN, MAX_SEQ_LEN},
-                    //     7
-                    // );
-
-                    // exit(0);
-                }
-
-                if (quant_size) {
-                    // qunatize
-                    // attn_weights (buff_8)
-                }
-                // execute(*models, "P3_first_buffered", quantize);
-                execute(*models, "P3_reshaped", quantize);
-                attn_output_shape = {1, seq_len, HIDDEN_SIZE};
+            {
+                // remove later
+                // seems ok
+                // bufferedToReshapedAfterP2first(
+                //     seq_len, 
+                //     models, 
+                //     (QUANT_TYPE)2, 
+                //     "P2_1 output (attn_weights before softmaxing)"
+                // ); // i dont think we need
+                // printTensorColumn(
+                //     "value_states after buffering",
+                //     (float*)(*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"]->data(),
+                //     {32, MAX_SEQ_LEN, 80}
+                // );
+                // printTensorColumn(
+                //     "attn_weights BEFORE SOFTMAX columns",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                // );
+                // printTensorColumn(
+                //     "attn_weights BEFORE SOFTMAX columns",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     1
+                // );
+                // printTensorColumn(
+                //     "attn_weights BEFORE SOFTMAX columns",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     2
+                // );
+                // printTensorColumn(
+                //     "attn_weights BEFORE SOFTMAX columns",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     MAX_SEQ_LEN-1
+                // );
+                // exit(0);
             }
-            else {
-                execute(*models, "P2_reshaped", false);
-                if (quantize) {
-                        // qunatize
-                }
-                reshapeToBufferedBeforeP3notFirst(tot_seq_len, (QUANT_TYPE*)buff_3.data(), models);
-                // execute(*models, "P3_not_first_buffered", quantize);
-                execute(*models, "P3_reshaped", quantize);
+
+            attn_weights_shape = {1, 32, seq_len, tot_seq_len};
+            // bufferedSoftmax(
+            //     {1, 32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+            //     attn_weights_shape,
+            //     (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data()
+            // );
+
+            printTensor(
+                "P2 attn_weights", 
+                (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data(), 
+                attn_weights_shape
+            );
+
+            // apply masking and softmaxing for non-buffered
+            size_t mask_offset = reduceDims(mask_shape);
+            assert(mask_offset == reduceDims(attn_weights_shape, 2));
+            for (size_t j = 0; j < attn_weights_shape.end()[-3]; j++) {
+                add(
+                    mask_ptr, 
+                    (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data() + j*mask_offset,
+                    (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data() + j*mask_offset,
+                    mask_shape
+                );
             }
+            mySoftmax(
+                (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data(),
+                (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data(),
+                attn_weights_shape
+            );
+
+            printTensor(
+                "P2 attn_weights after masking and softmaxing", 
+                (float*)(*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data(), 
+                attn_weights_shape
+            );
+
+            //remove later
+            {
+                // bufferedToReshapedAfterP2first(seq_len, models, (QUANT_TYPE)2, "P2_1 first after softmax");
+
+                // printTensorColumn(
+                //     "attn_weights",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                // );
+                // printTensorColumn(
+                //     "attn_weights",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     1
+                // );
+                // printTensorColumn(
+                //     "attn_weights",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     2
+                // );
+                // printTensorColumn(
+                //     "attn_weights",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     MAX_SEQ_LEN-1
+                // );
+
+                // printTensor(
+                //     "attn_weights",
+                //     (float*)(*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"]->data(),
+                //     {32, MAX_SEQ_LEN, MAX_SEQ_LEN}
+                // );
+
+                // printTensorColumn(
+                //     "attention_mask ",
+                //     (float*)(*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
+                //     {MAX_SEQ_LEN, MAX_SEQ_LEN},
+                //     7
+                // );
+
+                // exit(0);
+            }
+
+            if (quant_size) {
+                // qunatize
+                // attn_weights (buff_8)
+            }
+            // execute(*models, "P3_first_buffered", quantize);
+            execute(*models, "P3_reshaped", quantize);
+            attn_output_shape = {1, seq_len, HIDDEN_SIZE};
 
             // the 2 is a dummy val for the template
-            bufferedToReshapeBeforeP4(seq_len, i_str, models, (QUANT_TYPE)2);
+            // bufferedToReshapeBeforeP4(seq_len, i_str, models, (QUANT_TYPE)2);
 
                 {
                     // remove later
@@ -824,6 +855,7 @@ std::string modelLaunch(
 
         #ifdef DEBUG
             std::cout << "next token grabbed: " << next_token << "\n";
+            std::cout << "token translated: " << tokenizer_ptr->decode({next_token}) << "\n";
         #endif
 
         /* insert token */
@@ -832,6 +864,8 @@ std::string modelLaunch(
 
         tot_seq_len  = tot_token_seq.size();
         seq_len      = token_seq.size();
+
+        position_ids = {(int)tot_seq_len - 1};
 
         if (use_end_token_id && next_token == end_token_id) {
             break; 
@@ -842,9 +876,9 @@ std::string modelLaunch(
 
         std::cout << "\t\t\tTOT_SEQ_LEN: " << tot_seq_len << "\n";
 
-        reshapeStuff(models, iteration_num, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE));
-
-        position_ids = {(int)tot_seq_len - 1};
+        if (iteration_num != max_iterations-1) {
+            reshapeStuff(models, iteration_num, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE));
+        }
     }
 
     #ifdef DEBUG
@@ -887,6 +921,8 @@ std::string modelLaunch(
     #ifdef DEBUG
         std::cout << "\t\t\t--CHECKPOINT K--\n";
     #endif
+
+    printV("tot_token_seq", tot_token_seq);
 
     #ifdef DEBUG
         std::cout << "returning\n";
