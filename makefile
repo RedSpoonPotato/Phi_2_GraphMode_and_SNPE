@@ -1,43 +1,40 @@
-# Specify the compiler flags
-# CXX ?= g++
+# CXX := 
 
-CXXFLAGS += -std=c++11 -fPIC -march=x86-64
+# I AM ADDING THE "-g", can remove later
+CXXFLAGS += -std=c++11 -fPIC -march=x86-64 -g
 
 # Include paths
 INCLUDES += -I ./
-INCLUDES += -I $(SNPE_ROOT)/include/zdl -I include/ -I $(SNPE_ROOT)/include/SNPE
+INCLUDES += -I $(SNPE_ROOT)/include/zdl -I $(SRC_DIR)/include/ -I $(SNPE_ROOT)/include/SNPE
 
 # Specify the paths to the libraries
-LDFLAGS  += -shared -L $(SNPE_ROOT)/lib/x86_64-linux-clang
+LDFLAGS  += -L $(SNPE_ROOT)/lib/x86_64-linux-clang -L $(SRC_DIR) -L ./jni/obj/local/x86_64-linux-clang
 
 # Specify the link libraries
-LLIBS    += -lSNPE -lboost_regex -lboost_system -lboost_filesystem
+LLIBS    += -lSNPE -lmain -lboost_regex -lboost_system -lboost_filesystem
 
 # Specify the target
-SO_FILE := libmain.so
-SRC_DIR  := ./
-OBJ_DIR  := obj/local/x86_64-linux-clang
+PROGRAM  := load_test
+SRC_DIR  := ./jni
+OBJ_DIR  := $(SRC_DIR)/obj
 
-EXCLUDE_FILES := test.cpp main.cpp load_test_old.cpp main_alt.cpp htp_main_no_udo.cpp load_test.cpp android_main_htp_non_udo.cpp
-
-# goal is to compile: android_main.cpp
-
-SRC := $(filter-out $(addprefix $(SRC_DIR)/,$(EXCLUDE_FILES)), $(wildcard $(SRC_DIR)/*.cpp))
-# Generate the output names by substituting the object dir for the source dir
-OBJS     := $(subst $(SRC_DIR),$(OBJ_DIR),$(subst .cpp,.o,$(SRC)))
+# SRC := htp_main_no_udo.cpp
+ 
 
 default: all
-all: $(OBJ_DIR)/$(SO_FILE)
+all: $(SRC_DIR)/$(PROGRAM)
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp $(OBJ_DIR)
+# $(SRC_DIR)/android_main.h
+
+$(OBJ_DIR)/$(PROGRAM).o : $(SRC_DIR)/$(PROGRAM).cpp | $(OBJ_DIR)
 	$(CXX) -c $(CXXFLAGS) $(INCLUDES) $< -o $@
 
-$(OBJ_DIR)/$(SO_FILE): $(OBJS)
+$(SRC_DIR)/$(PROGRAM) : $(OBJ_DIR)/$(PROGRAM).o
 	$(CXX) $(LDFLAGS) $^ $(LLIBS) -o $@
 
 clean:
-	-rm -f $(OBJS)
-	-rm -f $(SO_FILE)
+	-rm -f $(OBJ_DIR)/$(PROGRAM).o
+# -rm -f $(SRC_DIR)/$(PROGRAM) # careful with this
 
 $(OBJ_DIR):
 	mkdir -p $(OBJ_DIR)
