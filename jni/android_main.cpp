@@ -56,15 +56,17 @@ std::string modelLaunch(
     #endif
 
     /* sets each model with their inputs vector and inputNameToFile map */
-    static std::map<std::string, ModelRuntime>* models = modelDictCreator(ModelNameAndPaths);
+    // static std::map<std::string, ModelRuntime>* models = modelDictCreator(ModelNameAndPaths);
+    static auto models = std::map<std::string, ModelRuntime>(); // temp
 
     Tokenizer* tokenizer_ptr;
 
-    if (exitAndFree == Free_Status::free) {
-        freeModels(models);
-        delete tokenizer_ptr;
-        return "";
-    }
+    // restore
+    // if (exitAndFree == Free_Status::free) {
+    //     freeModels(models);
+    //     delete tokenizer_ptr;
+    //     return "";
+    // }
 
     #ifdef DEBUG
         std::cout << "\t\t\t--CHECKPOINT B--\n";
@@ -144,6 +146,19 @@ std::string modelLaunch(
     auto decoder_output_shape   = std::vector<size_t>();
     auto mask_shape             = std::vector<size_t>();
 
+    {
+        // exit(0);
+        // remove later
+            // size_t dum = 0;
+            // int* c = (int*)malloc(sizeof(int) * 500000000);
+            // for (size_t i = 0; i < 100000000; i++) {
+            //     dum++;
+            // }
+            // std::cout << "dum: " << dum << "\n";
+            // free(c);
+            // exit(0);
+    }
+
     // quantization params
     std::vector<std::map<std::string, quantParams>> decoderQuantParams = quantizationParams();
 
@@ -160,6 +175,9 @@ std::string modelLaunch(
     if (intialize) {
         intialize = false;
 
+        // temp
+        modelDictCreatorStatic(models, ModelNameAndPaths);
+
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT D--\n";
         #endif
@@ -169,14 +187,47 @@ std::string modelLaunch(
             otherPaths.at("token_merges")
         );
 
+        // for DECODERS=3 unqunatized, ~1GB
+
         /* intialize runtimes */
-        intialize_model_runtime(*models, runtime_modes);
+        // intialize_model_runtime(*models, runtime_modes);
+        intialize_model_runtime(models, runtime_modes); // temp
+
+
+        // for DECODERS=3 unqunatized, ~2.412GB
+
+        {
+            // exit(0);
+            // remove later
+                // size_t dum = 0;
+                // int* c = (int*)malloc(sizeof(int) * 500000000);
+                // for (size_t i = 0; i < 100000000; i++) {
+                //     dum++;
+                // }
+                // std::cout << "dum: " << dum << "\n";
+                // free(c);
+                // exit(0);
+        }
 
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT E--\n";
         #endif
 
-        linkBuffers(models, buff_1, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8);
+        // linkBuffers(models, buff_1, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8);
+        linkBuffers(&models, buff_1, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8); // temp
+
+        {
+            // exit(0);
+            // remove later
+                // size_t dum = 0;
+                // int* c = (int*)malloc(sizeof(int) * 500000000);
+                // for (size_t i = 0; i < 100000000; i++) {
+                //     dum++;
+                // }
+                // std::cout << "dum: " << dum << "\n";
+                // free(c);
+                // exit(0);
+        }
 
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT F--\n";
@@ -184,7 +235,22 @@ std::string modelLaunch(
 
         // might need to be changed to account for some models that will and won't be qunatized
         // maybe shouild attach a quantization flag to each modelRuneitme
-        create_user_buffers(*models, datasize, isTFBuffer);
+        // create_user_buffers(*models, datasize, isTFBuffer);
+        create_user_buffers(models, datasize, isTFBuffer); // temp
+
+
+        {
+            // exit(0);
+                // remove later
+                // size_t dum = 0;
+                // int* c = (int*)malloc(sizeof(int) * 500000000);
+                // for (size_t i = 0; i < 100000000; i++) {
+                //     dum++;
+                // }
+                // std::cout << "dum: " << dum << "\n";
+                // free(c);
+            // exit(0);
+        }
 
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT G1--\n";
@@ -293,9 +359,136 @@ std::string modelLaunch(
     std::cout << "done\n";
     // exit(0);
 
+            {
+            // exit(0);
+            // remove later
+                // size_t dum = 0;
+                // int* c = (int*)malloc(sizeof(int) * 500000000);
+                // for (size_t i = 0; i < 100000000; i++) {
+                //     dum++;
+                // }
+                // std::cout << "dum: " << dum << "\n";
+                // free(c);
+                // exit(0);
+        }
+
     std::cout << "\n\n CALLING reshapeInitial\n\n";
-    reshapeInitial(models, seq_len, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE));
+    {
+            // remove
+            // exit(0);
+            std::cout << "resetting\n";
+
+            // auto it = models->find("P1_Q_reshaped_layer_1");
+            // assert(it != models->end());
+            // models->erase(it);
+
+            // models["P1_Q_reshaped_layer_1"].container.reset();
+
+            // std::string path_name = "./fp16_test/model_split/dlc/model_P1_Q_reshaped_layer_0.dlc";
+            // models["Final_LM_Head"].container.reset();
+            // models["Final_LM_Head"].container = loadContainerFromFile(path_name);
+
+            // exit(0);
+            // execute(models, "Final_LM_Head", false);
+
+            stall();
+            
+
+            execute(models, "P1_Q_reshaped_layer_0", false);
+            execute(models, "P1_Q_reshaped_layer_1", false);
+            execute(models, "P1_Q_reshaped_layer_2", false);
+
+            execute(models, "P1_K_reshaped_layer_0", false);
+            execute(models, "P1_K_reshaped_layer_1", false);
+            execute(models, "P1_K_reshaped_layer_2", false);
+
+            execute(models, "P1_V_reshaped_layer_0", false);
+            execute(models, "P1_V_reshaped_layer_1", false);
+            execute(models, "P1_V_reshaped_layer_2", false);
+
+            execute(models, "P1_FC1_reshaped_layer_0", false);
+            execute(models, "P1_FC1_reshaped_layer_1", false);
+            execute(models, "P1_FC1_reshaped_layer_2", false);
+
+            // stall();
+
+            // std::cout << "reshaping\n";
+            // reshapeModels(models, "MatmulTest",
+            // {
+            //     {"query_states:0", {32, 1500, 80}},
+            //     {"key_states:0", {32, 80, 1500}}
+            // }, sizeof(QUANT_TYPE));
+            // std::cout << "done reshaping\n";
+
+
+            // stall();
+
+            // execute(models, "MatmulTest", false);
+            // execute(models, "MatmulTest", false);
+            // execute(models, "MatmulTest", false);
+
+            // execute(models, "P3_reshaped", false);
+            // execute(models, "P3_reshaped", false);
+            // execute(models, "P3_reshaped", false);
+
+            // execute(models, "P4_1_reshaped_layer_0", false);
+            // execute(models, "P4_1_reshaped_layer_1", false);
+            // execute(models, "P4_1_reshaped_layer_2", false);
+
+            // execute(models, "P4_2_reshaped", false);
+            // execute(models, "P4_2_reshaped", false);
+            // execute(models, "P4_2_reshaped", false);
+
+
+            // models->at("P1_Q_reshaped_layer_1").container.reset();
+            // models->at("P1_Q_reshaped_layer_1").container.release();
+            // auto ptr = models->at("P1_Q_reshaped_layer_1").container.release();
+            // delete ptr;
+            // models->at("P1_Q_reshaped_layer_1").snpe.reset();
+            std::cout << "finished\n";
+            // exit(0);
+            // execute(*models, "P1_Q_reshaped_layer_1", quantize);
+            // execute(*models, "P2_reshaped", false);
+
+
+            // stall();
+
+            // execute(models, "Final_LM_Head", false);
+
+            stall();
+
+            
+
+            // execute(models, "Final_LM_Head", false);
+
+
+            // stall();
+
+
+            exit(0);
+
+    }
+
+    // temp
+    /*
+
+    reshapeInitial(models, seq_len, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE)); // restore
+    // reshapeInitial(models, seq_len+1, tot_seq_len+1, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE)); // remove later
+    // exit(0);
     std::cout << "\n\n FINISHED CALLING reshapeIntial\n\n";
+
+            {
+            // exit(0);
+            // remove later
+                // size_t dum = 0;
+                // int* c = (int*)malloc(sizeof(int) * 500000000);
+                // for (size_t i = 0; i < 100000000; i++) {
+                //     dum++;
+                // }
+                // std::cout << "dum: " << dum << "\n";
+                // free(c);
+                // exit(0);
+        }
 
     for (uint32_t iteration_num = 0; iteration_num < max_iterations; iteration_num++) {
 
@@ -303,7 +496,7 @@ std::string modelLaunch(
             printV("token_seq", token_seq);
         #endif
 
-        /* embedding layer */
+        // embedding layer
         writeEmbedding( 
             otherPaths.at("embedding"),
             token_seq, 
@@ -325,7 +518,7 @@ std::string modelLaunch(
         // set decoder_output as input to layernorm
         residual_shape = {1, seq_len, HIDDEN_SIZE};
 
-        /* generate mask */
+        // generate mask
         assert(float_size == 4); // otherwise chagne the casting of the mask pointer
         std::cout << "calling mask\n";
         mask_shape = prepareMask(
@@ -356,7 +549,7 @@ std::string modelLaunch(
             std::cout << "executing model\n";
         #endif
 
-        /* call model */
+        // call model
         for (int i = 0; i < DECODERS; i++) {
             std::string i_str = std::to_string(i);
 
@@ -490,7 +683,7 @@ std::string modelLaunch(
                 );
             }
             else {
-                // **this a test for seeing if gelu works in memory.
+                // this a test for seeing if gelu works in memory.
                 // You can remove this block and replace it with letting gelu input point to buff_6 if unquantized instead
                 copyTensor((UNQUANT_TYPE*)buff_6.data(), (UNQUANT_TYPE*)buff_8.data(), {seq_len, INTERMEDIATE_SIZE});
             }
@@ -531,7 +724,7 @@ std::string modelLaunch(
             }
             execute(*models, "P1_2_reshaped_layer_" + i_str, quantize);
 
-            /* implement processing */
+            // implement processing
             // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
             sin_cached_shape = {MAX_SEQ_LEN, 32};
             cos_cached_shape = {MAX_SEQ_LEN, 32};
@@ -594,6 +787,7 @@ std::string modelLaunch(
             );
 
             {
+                
                 // remove later
                 // printTensorColumn(
                 //     "\nquery_states columns after DynTruncation()",
@@ -808,7 +1002,7 @@ std::string modelLaunch(
 
             decoder_output_shape = {1, seq_len, HIDDEN_SIZE};
 
-            /* copy data from decoder_out to residual buffer if we are not on the last decoder layer*/
+            // copy data from decoder_out to residual buffer if we are not on the last decoder layer
             if (i != DECODERS-1) { 
                 std::cout << "\nCOPYING DATA to residual\n";
                 residual_shape = decoder_output_shape;
@@ -826,7 +1020,10 @@ std::string modelLaunch(
             }
         }
 
-        /* write kv cache from out to in */
+        // remove later
+        // exit(0);
+
+        // write kv cache from out to in
         #ifdef DEBUG
             std::cout << "calling copyKV\n";
         #endif
@@ -844,9 +1041,11 @@ std::string modelLaunch(
             residual_shape,
             1e-5
         );
+        
         execute(*models, "Final_LM_Head", quantize);
+        // exit(0);
 
-        /* grab next token */
+        // grab next token
         // the line below is old, FIX IT
         next_token = Argmax(
             (VOCAB_SIZE * (seq_len-1)) + (QUANT_TYPE*)(*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"]->data(),
@@ -858,7 +1057,7 @@ std::string modelLaunch(
             std::cout << "token translated: " << tokenizer_ptr->decode({next_token}) << "\n";
         #endif
 
-        /* insert token */
+        // insert token 
         tot_token_seq.push_back(next_token);
         token_seq = std::vector<uint32_t> {next_token};
 
@@ -871,10 +1070,11 @@ std::string modelLaunch(
             break; 
         }
 
-        /* reshape */
+        // reshape
         // reshape stuff for the next run
 
         std::cout << "\t\t\tTOT_SEQ_LEN: " << tot_seq_len << "\n";
+        // exit(0);
 
         if (iteration_num != max_iterations-1) {
             reshapeStuff(models, iteration_num, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE));
@@ -885,7 +1085,7 @@ std::string modelLaunch(
         std::cout << "\t\t\t--CHECKPOINT I--\n";
     #endif
     
-    /* tokenizer decode */
+    // tokenizer decode
     std::string output_txt;
     output_txt = tokenizer_ptr->decode(tot_token_seq);
     
@@ -929,4 +1129,6 @@ std::string modelLaunch(
     #endif
 
     return output_txt;
+    */ // temp
+    return "BEANS\n";
 }

@@ -44,6 +44,11 @@ int main(int argc, char** argv) {
         std::cerr << "problem with parsing, argv[1]: " << argv[1]; return 1; 
     }
 
+    // grab max_iterations
+    char* end;
+    uint32_t max_iterations = static_cast<uint32_t>(strtoul(argv[2], &end, 10));
+    assert(*end == '\0');
+
     // remove this if u add cpu and/or gpu support
     // assert(runtime_type == zdl::DlSystem::Runtime_t::DSP);
 
@@ -68,6 +73,10 @@ int main(int argc, char** argv) {
     // model_names.insert("P3_not_first_buffered");
     model_names.insert("P4_2_reshaped");
     model_names.insert("Final_LM_Head");
+
+    // remove later
+    model_names.insert("MatmulTest");
+
 
     // setting runtime
     for (const std::string& model_name : model_names) {
@@ -113,7 +122,6 @@ int main(int argc, char** argv) {
     otherPaths["final_layernorm_bias"]      = "./fp16_test/model_split/data/final_layernorm_bias.bin";
 
     // other params
-    uint32_t max_iterations = 20;  // CHANGE THIS TO WHATEVER IT SHOULD BE
     int debugReturnCode = 20;
     uint32_t end_token_id = 1; // CHANGE THIS TO WHATEVER IT SHOULD BE
     bool use_end_token_id = false; // CHANGE THIS TO WHATEVER IT SHOULD BE

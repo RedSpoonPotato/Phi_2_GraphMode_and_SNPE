@@ -1,7 +1,8 @@
 # Specify the compiler flags
 # CXX ?= g++
 
-CXXFLAGS += -std=c++11 -fPIC -march=x86-64
+# I AM ADDING THE "-g", can remove later
+CXXFLAGS += -std=c++11 -fPIC -march=x86-64 -g
 
 # Include paths
 INCLUDES += -I ./
