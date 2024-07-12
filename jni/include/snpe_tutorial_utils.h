@@ -209,8 +209,8 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex(std::unique_ptr<zdl::DlCon
        .setRuntimeProcessorOrder(runtimeList)
        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
     //    .setPlatformConfig(platformConfig)
-    //    .setInitCacheMode(useCaching)
-    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .setInitCacheMode(useCaching)
+       .setCpuFixedPointMode(cpuFixedPointMode)
        .build();
     return snpe;
 }
@@ -245,8 +245,8 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex_multipleOuts(std::unique_p
     //    .setOutputLayers(outputNamesList)
         .setOutputTensors(outputNamesList)
     //    .setPlatformConfig(platformConfig)
-    //    .setInitCacheMode(useCaching)
-    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .setInitCacheMode(useCaching)
+       .setCpuFixedPointMode(cpuFixedPointMode)
        .build();
     return snpe;
 }
@@ -294,8 +294,8 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
        .setRuntimeProcessorOrder(runtimeList)
        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
     //    .setPlatformConfig(platformConfig)
-    //    .setInitCacheMode(useCaching)
-    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .setInitCacheMode(useCaching)
+       .setCpuFixedPointMode(cpuFixedPointMode)
        .build();
 
     #ifdef DEBUG
@@ -352,8 +352,8 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex_multipleOuts_reshape(std::
     //    .setOutputLayers(outputNamesList)
         .setOutputTensors(outputNamesList)
     //    .setPlatformConfig(platformConfig)
-    //    .setInitCacheMode(useCaching)
-    //    .setCpuFixedPointMode(cpuFixedPointMode)
+       .setInitCacheMode(useCaching)
+       .setCpuFixedPointMode(cpuFixedPointMode)
        .build();
     
     std::cout << "\n\nsnpe.get() after: " << snpe.get() << "\n";

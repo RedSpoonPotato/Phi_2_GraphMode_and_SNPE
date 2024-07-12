@@ -1096,6 +1096,8 @@ void apply_rotary_pos_emb(
     //free
     free(cos_buff);
     free(sin_buff);
+    free(q_temp_buff);
+    free(k_temp_buff);
 }
 
 // void transpose_u8(

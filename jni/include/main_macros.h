@@ -36,7 +36,7 @@
 
 #define VOCAB_SIZE 51200
 
-#define DECODERS 8
+#define DECODERS 3
 // #define DECODERS 16
 
 
@@ -55,5 +55,13 @@
 // typedef uint16_t datatype;
 
 #define N_PRINT 5 // legnth of elements to print
+
+void stall() {
+    size_t dum = 0;
+        for (size_t i = 0; i < 1000000000; i++) {
+        dum++;
+    }
+    std::cout << "dum: " << dum << "\n";
+}
 
 #endif

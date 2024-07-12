@@ -126,6 +126,18 @@ std::map<std::string, ModelRuntime>* modelDictCreator(
     return map_ptr;
 }
 
+void modelDictCreatorStatic(
+    std::map<std::string, ModelRuntime>& model_map,
+    const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths)   
+{
+    for (const auto& pair : ModelNameAndPaths) {
+        const std::string& model_name = pair.first;
+        const std::string& dlcPath = pair.second;
+        model_map.emplace(model_name, ModelRuntime());
+        model_map.at(model_name).dlc_path = dlcPath;
+    }
+}
+
 // could comment in later
 
 template<typename T>
@@ -405,6 +417,11 @@ void linkBuffers(
     (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
     (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
+    // remove later
+    (*models)["MatmulTest"].applicationInputBuffers["query_states:0"] = &buff_3;
+    (*models)["MatmulTest"].applicationInputBuffers["key_states:0"] = &buff_4;
+    (*models)["MatmulTest"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+
     // (*models)["P2_not_first_reshaped"].applicationInputBuffers["query_states_0:0"] = &buff_3;
     // (*models)["P2_not_first_reshaped"].applicationInputBuffers["key_states_0:0"] = &buff_4;
     // (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7; // keep uncommented
@@ -541,6 +558,15 @@ std::string intialize_model_runtime(
     assert(runtime_modes.size() == num_models);
 
     for (auto const& pair : runtimes) {
+
+        // static int c = 0;
+        // c++;
+        // std::cout << "\n\nmodel: " << pair.first << "\n\n";
+        // if (c > 1) {
+        //     size_t sum = 0; for (size_t j = 0;  j < 1000000000;j++) {sum++;} exit(0);   
+        // }
+        
+
         const std::string& model = pair.first;
         #ifdef DEBUG
             std::cout << "iterating through model: " << model << "\n";
@@ -646,11 +672,45 @@ std::string intialize_model_runtime(
             std::cout << "pointer of runtimes[model].snpe " << runtimes[model].snpe.get() << "\n";
         }
         
+        // runtimes[model].container.reset();
+        // runtimes[model].snpe.reset();
+        // for (size_t i = 0; i < runtimes[model].input_user_buff_vec.size(); i++) {
+        //     runtimes[model].input_user_buff_vec[i].reset();
+        // }
+        // for (size_t i = 0; i < runtimes[model].output_user_buff_vec.size(); i++) {
+        //     runtimes[model].output_user_buff_vec[i].reset();
+        // }
+        // runtimes[model].inputMap = zdl::DlSystem::UserBufferMap();
+        // runtimes[model].outputMap = zdl::DlSystem::UserBufferMap();
+
+        // {
+        //     std::string path_name = "./fp16_test/model_split/dlc/model_P1_Q_reshaped_layer_0.dlc";
+        //     runtimes[model].container.reset();
+        //     runtimes[model].snpe.reset();
+        //     runtimes[model].container = loadContainerFromFile(path_name);
+        //     runtimes[model].snpe = setBuilderOptions_ex(
+        //         runtimes[model].container,
+        //         runtimes[model].runtime,
+        //         runtimes[model].runtimeList,
+        //         useUserSuppliedBuffers,
+        //         runtimes[model].platformConfig,
+        //         useCaching, cpuFixedPointMode);
+        //     size_t sum = 0; for (size_t j = 0;  j < 1000000000;j++) {sum++;} exit(0);   
+        // }
+
+
+
+
+        // size_t sum = 0; for (size_t j = 0;  j < 1000000000;j++) {sum++;} exit(0);
         
+        // remove later
+        // static int c = 0;
+        // c++;
+        // if (c > 1) {
+        //     exit(0);
+        // }
+        // exit(0);
 
-
-    //    runtimes[str].inputMap = zdl::DlSystem::UserBufferMap();
-    //     runtimes[str].outputMap = zdl::DlSystem::UserBufferMap();
 
         runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
         
@@ -664,6 +724,9 @@ std::string intialize_model_runtime(
             std::cout << "time to build model " << model << ": " << duration_2 << "ms\n\n";
         #endif
     }
+
+    
+
     return "done";
     // return std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].container.get())) + "\n" + 
     //         std::to_string(reinterpret_cast<std::uintptr_t>(runtimes[0].snpe.get()));
@@ -820,6 +883,10 @@ void reshapeModels(
         std::cout << "\t\tmodels[model_name].snpe: "  
             << models[model_name].snpe.get() << "\n";
     #endif
+
+    models[model_name].snpe.reset();
+    
+
     bool useUserSuppliedBuffers = true;
     bool useCaching = false;
     bool cpuFixedPointMode = false;
@@ -952,6 +1019,7 @@ void reshapeInitial(
             {"residual:0", {seq_len, HIDDEN_SIZE}},
         }, unquant_datasize);
 
+    // exit(0);
     reshapeModels(*models, "Final_LM_Head",
         {
             {"final_input:0", {seq_len, HIDDEN_SIZE}}
