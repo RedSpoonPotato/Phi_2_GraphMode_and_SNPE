@@ -86,9 +86,11 @@ int main(int argc, char** argv) {
     // setting dlc paths
     std::set<std::pair<std::string, std::string>> ModelNameAndPaths;
     // std::string dlcDir = "./fp16_test/model_split/q_dlc/q_model_"; // restore this
-    std::string dlcDir = "./fp16_test/model_split/dlc/model_"; // remove this
+    // std::string dlcDir = "./fp16_test/model_split/dlc/model_"; // remove this
+    std::string dlcDir = "./dlc/"; // for laptop
+    std::string dlcSuffix = "model_"; // for laptop
     for (const std::string& model_name : model_names) {
-        ModelNameAndPaths.insert({model_name, dlcDir + model_name + ".dlc"});
+        ModelNameAndPaths.insert({model_name, dlcDir + dlcSuffix + model_name + ".dlc"});
     }
 
     // remove this later
@@ -107,19 +109,25 @@ int main(int argc, char** argv) {
 
     // setting sin, cos, embedding paths
     std::map<std::string, std::string> otherPaths;
-    otherPaths["sin"] = "./fp16_test/model_split/data/sin_cached.bin"; // 32-bit
-    otherPaths["cos"] = "./fp16_test/model_split/data/cos_cached.bin"; // 32-bit
-    otherPaths["embedding"] = "./fp16_test/model_split/data/embedding.bin"; // 16-bit
-    otherPaths["token_vocab"] = "./fp16_test/model_split/data/vocab.json";
-    otherPaths["token_merges"] = "./fp16_test/model_split/data/merges.txt";
+    // std::string dataPath = "./fp16_test/model_split/data/";
+    std::string dataPath = "./data/";
+    otherPaths["sin"] = "sin_cached.bin"; // 32-bit
+    otherPaths["cos"] = "cos_cached.bin"; // 32-bit
+    otherPaths["embedding"] = "embedding.bin"; // 16-bit
+    otherPaths["token_vocab"] = "vocab.json";
+    otherPaths["token_merges"] = "merges.txt";
     // otherPaths[""] = "./fp16_test/model_split/data/merges.txt";
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        otherPaths["layernorm_weight_" + i_str] = "./fp16_test/model_split/data/layernorm_weight_" + i_str + ".bin";
-        otherPaths["layernorm_bias_" + i_str] = "./fp16_test/model_split/data/layernorm_bias_" + i_str + ".bin";
+        otherPaths["layernorm_weight_" + i_str] = "layernorm_weight_" + i_str + ".bin";
+        otherPaths["layernorm_bias_" + i_str] = "layernorm_bias_" + i_str + ".bin";
     }
-    otherPaths["final_layernorm_weight"]    = "./fp16_test/model_split/data/final_layernorm_weight.bin";
-    otherPaths["final_layernorm_bias"]      = "./fp16_test/model_split/data/final_layernorm_bias.bin";
+    otherPaths["final_layernorm_weight"]    = "final_layernorm_weight.bin";
+    otherPaths["final_layernorm_bias"]      = "final_layernorm_bias.bin";
+
+    for (auto& pair : otherPaths) {
+        pair.second = dataPath + pair.second;
+    }
 
     // other params
     int debugReturnCode = 20;
