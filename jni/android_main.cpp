@@ -98,7 +98,7 @@ std::string modelLaunch(
     static auto buff_5      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * quant_size, 0);
     static auto buff_6      =   std::vector<uint8_t>(MAX_SEQ_LEN * INTERMEDIATE_SIZE * quant_size, 0);
     static auto buff_7      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4, 0);
-    static auto buff_8      =   std::vector<uint8_t>(rotary_emb_dim *  MAX_SEQ_LEN * HIDDEN_SIZE * 4, 0);
+    static auto buff_8      =   std::vector<uint8_t>(rotary_emb_dim *  MAX_SEQ_LEN * HIDDEN_SIZE * quant_size, 0);
     // static auto buff_9      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size);
     // static auto buff_10     =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size);
 
@@ -183,7 +183,7 @@ std::string modelLaunch(
         #endif
 
         tokenizer_ptr = new Tokenizer(
-            otherPaths.at("token_vocab"), 
+            otherPaths.at("token_vocab"),
             otherPaths.at("token_merges")
         );
 
@@ -193,21 +193,7 @@ std::string modelLaunch(
         // intialize_model_runtime(*models, runtime_modes);
         intialize_model_runtime(models, runtime_modes); // temp
 
-
         // for DECODERS=3 unqunatized, ~2.412GB
-
-        {
-            // exit(0);
-            // remove later
-                // size_t dum = 0;
-                // int* c = (int*)malloc(sizeof(int) * 500000000);
-                // for (size_t i = 0; i < 100000000; i++) {
-                //     dum++;
-                // }
-                // std::cout << "dum: " << dum << "\n";
-                // free(c);
-                // exit(0);
-        }
 
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT E--\n";
@@ -216,19 +202,6 @@ std::string modelLaunch(
         // linkBuffers(models, buff_1, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8);
         linkBuffers(&models, buff_1, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8); // temp
 
-        {
-            // exit(0);
-            // remove later
-                // size_t dum = 0;
-                // int* c = (int*)malloc(sizeof(int) * 500000000);
-                // for (size_t i = 0; i < 100000000; i++) {
-                //     dum++;
-                // }
-                // std::cout << "dum: " << dum << "\n";
-                // free(c);
-                // exit(0);
-        }
-
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT F--\n";
         #endif
@@ -236,21 +209,7 @@ std::string modelLaunch(
         // might need to be changed to account for some models that will and won't be qunatized
         // maybe shouild attach a quantization flag to each modelRuneitme
         // create_user_buffers(*models, datasize, isTFBuffer);
-        create_user_buffers(models, datasize, isTFBuffer); // temp
-
-
-        {
-            // exit(0);
-                // remove later
-                // size_t dum = 0;
-                // int* c = (int*)malloc(sizeof(int) * 500000000);
-                // for (size_t i = 0; i < 100000000; i++) {
-                //     dum++;
-                // }
-                // std::cout << "dum: " << dum << "\n";
-                // free(c);
-            // exit(0);
-        }
+        create_user_buffers(models, datasize, isTFBuffer); // temp (restore for testing later)
 
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT G1--\n";
@@ -267,22 +226,6 @@ std::string modelLaunch(
 
         zdl::SNPE::SNPEFactory::terminateLogging();
     }
-
-    // might be unnecessary, but also might not be (mgiht need to do every run)
-    // fillZeros(buff_1, buff_3, buff_4, buff_5, buff_6, buff_7, buff_8);
-
-    // remove later
-    // std::cout << "last couple elements of buff_3: ";
-    // for (size_t i = buff_3.size() - 10; i < buff_3.size(); i++) {
-    //     std::cout << (int)buff_3[i] << ", ";
-    // }
-    // std::cout << "\n";
-    // printTensorColumn(
-    //     "\nbuff_3",
-    //     // (float*)buff_3.data(), // query-states
-    //     (float*)((*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data()),
-    //     {32, MAX_SEQ_LEN, 80}
-    // );
 
     /* execution stage */
     #ifdef DEBUG
@@ -331,7 +274,6 @@ std::string modelLaunch(
     // }, sizeof(UNQUANT_TYPE));
     // execute(*models, "P2_reshaped", quantize);
 
-
     // reshapeModels(*models, "P3_reshaped",
     // {
     //     {"attn_weights:0", {32, 1, 13}},
@@ -376,6 +318,7 @@ std::string modelLaunch(
     {
             // remove
             // exit(0);
+            CLOCK_INIT
             std::cout << "resetting\n";
 
             // auto it = models->find("P1_Q_reshaped_layer_1");
@@ -389,26 +332,180 @@ std::string modelLaunch(
             // models["Final_LM_Head"].container = loadContainerFromFile(path_name);
 
             // exit(0);
-            // execute(models, "Final_LM_Head", false);
 
             stall();
+
+            std::cout << "reshaping\n";
+
+            /// 
+            size_t seq_len = 900;
+
+            // exit(0);
+
+            reshapeModels(models, "P1_QKV_reshaped_no_bias",
+            {
+                {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}}
+            }, sizeof(QUANT_TYPE));
+            reshapeModels(models, "P2_reshaped",
+            {
+                {"query_states:0", {32, seq_len, 80}},
+                {"key_states:0", {32, seq_len, 80}}
+            }, sizeof(QUANT_TYPE)
+            );
+            reshapeModels(models, "P3_reshaped",
+                {
+                    {"attn_weights:0", {32, seq_len, seq_len}},
+                    {"value_states:0", {32, seq_len, 80}}
+                }, sizeof(QUANT_TYPE)
+            );
+            reshapeModels(models, "FC1_reshaped_no_bias",
+            {
+                {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, INTERMEDIATE_SIZE}}
+            }, sizeof(QUANT_TYPE));
+            reshapeModels(models, "FC2_reshaped_no_bias",
+            {
+                {"gelu_out:0", {1, seq_len, INTERMEDIATE_SIZE}},
+                {"weights:0", {1, INTERMEDIATE_SIZE, HIDDEN_SIZE}}
+            }, sizeof(QUANT_TYPE));
+            reshapeModels(models, "FinalLMHead_reshaped_no_bias",
+            {
+                {"final_input:0", {1, seq_len, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, VOCAB_SIZE}}
+            }, sizeof(QUANT_TYPE));
+            stall();
+
+            // exit(0);
+
+            execute(models, "P2_reshaped", false);
+            execute(models, "P3_reshaped", false);
+            execute(models, "FC1_reshaped_no_bias", false);
+            execute(models, "FC2_reshaped_no_bias", false);
+            execute(models, "FinalLMHead_reshaped_no_bias", false);
+            execute(models, "P1_QKV_reshaped_no_bias", false);
+
+
+            stall();
+
+            exit(0);
+            /// 
+            
+            // create buffer construct
+            // zdl::DlSystem::UserMemoryMap map;
+            // static auto temp_buff = std::vector<uint8_t>(rotary_emb_dim *  MAX_SEQ_LEN * HIDDEN_SIZE * 4, 0);
+
+            // stall();
+            // exit(0);
+            
+            // create_user_buffers_with_memory(
+            //     models,
+            //     map,
+            //     temp_buff,
+            //     datasize,
+            //     isTFBuffer,
+            //     "P2_reshaped"
+            // );
+            // models["P2_reshaped"].snpe->registerMemoryMappedBuffers(map);
+
+
+            CLOCK_START
+            
+            // create_user_buffers_with_memory(
+            //     models,
+            //     map,
+            //     temp_buff,
+            //     datasize,
+            //     isTFBuffer,
+            //     "P3_reshaped"
+            // );
+
+            CLOCK_END
+
+            // models["P3_reshaped"].snpe->registerMemoryMappedBuffers(map);
+
+            // create_user_buffers(models, datasize, isTFBuffer, "P2_reshaped");
+            
+            stall();
+            // exit(0);
+
+            // auto temp_buff_ptr = &temp_buff;
+            // auto map_ptr = &map;
+
+            // temp_buff_ptr = nullptr;
+            // map_ptr = nullptr;
+
+            // reshapeModels(models, "P2_reshaped",
+            // {
+            //     {"query_states:0", {32, 1500, 80}},
+            //     {"key_states:0", {32, 1500, 80}}
+            // }, sizeof(QUANT_TYPE),
+            // temp_buff_ptr,
+            // map_ptr
+            // );
+
+            // stall();
+
             
 
-            execute(models, "P1_Q_reshaped_layer_0", false);
-            execute(models, "P1_Q_reshaped_layer_1", false);
-            execute(models, "P1_Q_reshaped_layer_2", false);
+            CLOCK_START
+            size_t dim_size  = 1500;
+            
+            reshapeModels(models, "P3_reshaped",
+                {
+                    {"attn_weights:0", {32, dim_size, dim_size}},
+                    {"value_states:0", {32, dim_size, 80}}
+                }, sizeof(QUANT_TYPE)
+            );
+            CLOCK_END
+            stall();
+            // exit(0);
+            // execute(models, "P3_reshaped", false);
+            stall();
 
-            execute(models, "P1_K_reshaped_layer_0", false);
-            execute(models, "P1_K_reshaped_layer_1", false);
-            execute(models, "P1_K_reshaped_layer_2", false);
+            // exit(0);
 
-            execute(models, "P1_V_reshaped_layer_0", false);
-            execute(models, "P1_V_reshaped_layer_1", false);
-            execute(models, "P1_V_reshaped_layer_2", false);
+            dim_size = 800;
+            CLOCK_START
+            reshapeModels(models, "P3_reshaped",
+                {
+                    {"attn_weights:0", {32, dim_size, dim_size}},
+                    {"value_states:0", {32, dim_size, 80}}
+                }, sizeof(QUANT_TYPE)
+            );
+            CLOCK_END
+            stall();
+            exit(0);
+            execute(models, "P3_reshaped", false);
 
-            execute(models, "P1_FC1_reshaped_layer_0", false);
-            execute(models, "P1_FC1_reshaped_layer_1", false);
-            execute(models, "P1_FC1_reshaped_layer_2", false);
+
+
+            std::cout << "done reshaping\n";
+
+            stall();
+            exit(0);
+
+            execute(models, "P2_reshaped", false);
+
+            stall();
+            exit(0);
+            
+
+            // execute(models, "P1_Q_reshaped_layer_0", false);
+            // execute(models, "P1_Q_reshaped_layer_1", false);
+            // execute(models, "P1_Q_reshaped_layer_2", false);
+
+            // execute(models, "P1_K_reshaped_layer_0", false);
+            // execute(models, "P1_K_reshaped_layer_1", false);
+            // execute(models, "P1_K_reshaped_layer_2", false);
+
+            // execute(models, "P1_V_reshaped_layer_0", false);
+            // execute(models, "P1_V_reshaped_layer_1", false);
+            // execute(models, "P1_V_reshaped_layer_2", false);
+
+            // execute(models, "P1_FC1_reshaped_layer_0", false);
+            // execute(models, "P1_FC1_reshaped_layer_1", false);
+            // execute(models, "P1_FC1_reshaped_layer_2", false);
 
             // stall();
 

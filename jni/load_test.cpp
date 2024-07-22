@@ -55,14 +55,18 @@ int main(int argc, char** argv) {
     // setting names
     std::set<std::string> model_names;
     for (int i = 0; i < DECODERS; i++) {
-        std::string i_str = std::to_string(i);
-        model_names.insert("P1_Q_reshaped_layer_" + i_str);
-        model_names.insert("P1_K_reshaped_layer_" + i_str);
-        model_names.insert("P1_V_reshaped_layer_" + i_str);
-        model_names.insert("P1_FC1_reshaped_layer_" + i_str);
-        model_names.insert("P1_2_reshaped_layer_" + i_str);
-        model_names.insert("P4_1_reshaped_layer_" + i_str);
+        // std::string i_str = std::to_string(i);
+        // model_names.insert("P1_Q_reshaped_layer_" + i_str);
+        // model_names.insert("P1_K_reshaped_layer_" + i_str);
+        // model_names.insert("P1_V_reshaped_layer_" + i_str);
+        // model_names.insert("P1_FC1_reshaped_layer_" + i_str);
+        // model_names.insert("P1_2_reshaped_layer_" + i_str);
+        // model_names.insert("P4_1_reshaped_layer_" + i_str);
     }
+    model_names.insert("FC1_reshaped_no_bias");
+    model_names.insert("FC2_reshaped_no_bias");
+    model_names.insert("FinalLMHead_reshaped_no_bias");
+
     // model_names.insert("gelu"); // might fail to reshape, if so, just implement manually in executable
     model_names.insert("P2_reshaped");
     // model_names.insert("P2_1_first_buffered");
@@ -71,8 +75,12 @@ int main(int argc, char** argv) {
     // model_names.insert("P3_first_buffered");
     // model_names.insert("P3_not_first_reshaped"); // this had problems so using buffered version instead to avoid reshaping
     // model_names.insert("P3_not_first_buffered");
-    model_names.insert("P4_2_reshaped");
-    model_names.insert("Final_LM_Head");
+    // model_names.insert("P4_2_reshaped");
+    // model_names.insert("Final_LM_Head");
+
+    // model_names.insert("P1_QKV_reshaped_with_bias");
+    model_names.insert("P1_QKV_reshaped_no_bias");
+
 
     // remove later
     model_names.insert("MatmulTest");
@@ -86,8 +94,8 @@ int main(int argc, char** argv) {
     // setting dlc paths
     std::set<std::pair<std::string, std::string>> ModelNameAndPaths;
     // std::string dlcDir = "./fp16_test/model_split/q_dlc/q_model_"; // restore this
-    // std::string dlcDir = "./fp16_test/model_split/dlc/model_"; // remove this
-    std::string dlcDir = "./dlc/"; // for laptop
+    std::string dlcDir = "./fp16_test/model_split/dlc/";
+    // std::string dlcDir = "./dlc/"; // for laptop
     std::string dlcSuffix = "model_"; // for laptop
     for (const std::string& model_name : model_names) {
         ModelNameAndPaths.insert({model_name, dlcDir + dlcSuffix + model_name + ".dlc"});
@@ -109,8 +117,8 @@ int main(int argc, char** argv) {
 
     // setting sin, cos, embedding paths
     std::map<std::string, std::string> otherPaths;
-    // std::string dataPath = "./fp16_test/model_split/data/";
-    std::string dataPath = "./data/";
+    std::string dataPath = "./fp16_test/model_split/data/";
+    // std::string dataPath = "./data/";
     otherPaths["sin"] = "sin_cached.bin"; // 32-bit
     otherPaths["cos"] = "cos_cached.bin"; // 32-bit
     otherPaths["embedding"] = "embedding.bin"; // 16-bit
@@ -124,7 +132,6 @@ int main(int argc, char** argv) {
     }
     otherPaths["final_layernorm_weight"]    = "final_layernorm_weight.bin";
     otherPaths["final_layernorm_bias"]      = "final_layernorm_bias.bin";
-
     for (auto& pair : otherPaths) {
         pair.second = dataPath + pair.second;
     }
