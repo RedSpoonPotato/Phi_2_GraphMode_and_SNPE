@@ -64,4 +64,10 @@ void stall() {
     std::cout << "dum: " << dum << "\n";
 }
 
+#ifdef DEBUG
+    #define CLOCK_INIT std::chrono::_V2::system_clock::time_point start; std::chrono::_V2::system_clock::time_point end; int64_t duration;
+    #define CLOCK_START start = std::chrono::high_resolution_clock::now();
+    #define CLOCK_END end = std::chrono::high_resolution_clock::now(); duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(); std::cout << "duration: " << duration << "ms\n";
+#endif
+
 #endif

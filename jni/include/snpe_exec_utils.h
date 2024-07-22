@@ -386,32 +386,22 @@ void linkBuffers(
     
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
-        // (*models)["P1_1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
-        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
-        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
-        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
-        // (*models)["P1_1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
 
-        (*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
-        (*models)["P1_Q_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
+        // (*models)["P1_Q_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        // (*models)["P1_Q_reshaped_layer_" + i_str].applicationOutputBuffers["query_states:0"] = &buff_3;
 
-        (*models)["P1_K_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
-        (*models)["P1_K_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
+        // (*models)["P1_K_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        // (*models)["P1_K_reshaped_layer_" + i_str].applicationOutputBuffers["key_states:0"] = &buff_4;
 
-        (*models)["P1_V_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
-        (*models)["P1_V_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
+        // (*models)["P1_V_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        // (*models)["P1_V_reshaped_layer_" + i_str].applicationOutputBuffers["value_states:0"] = &buff_5;
 
-        (*models)["P1_FC1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
-        (*models)["P1_FC1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
+        // (*models)["P1_FC1_reshaped_layer_" + i_str].applicationInputBuffers["hidden_states:0"] = &buff_8; // new
+        // (*models)["P1_FC1_reshaped_layer_" + i_str].applicationOutputBuffers["fc1_out:0"] = &buff_6;
 
-        (*models)["P1_2_reshaped_layer_" + i_str].applicationInputBuffers["gelu_fc1_out:0"] = &buff_8;
-        (*models)["P1_2_reshaped_layer_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
+        // (*models)["P1_2_reshaped_layer_" + i_str].applicationInputBuffers["gelu_fc1_out:0"] = &buff_8;
+        // (*models)["P1_2_reshaped_layer_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
     }
-
-    // (*models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"] = &buff_3;
-    // (*models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"] = &buff_4;
-    // (*models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"] = &buff_7;
-    // (*models)["P2_1_first_buffered"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
     (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"] = &buff_3;
     (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
@@ -422,41 +412,45 @@ void linkBuffers(
     (*models)["MatmulTest"].applicationInputBuffers["key_states:0"] = &buff_4;
     (*models)["MatmulTest"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
-    // (*models)["P2_not_first_reshaped"].applicationInputBuffers["query_states_0:0"] = &buff_3;
-    // (*models)["P2_not_first_reshaped"].applicationInputBuffers["key_states_0:0"] = &buff_4;
-    // (*models)["P2_not_first_reshaped"].applicationInputBuffers["attention_mask:0"] = &buff_7; // keep uncommented
-    // (*models)["P2_not_first_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+    // fix these buffer assingments later
+    // (*models)["P1_QKV_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_3;
+    // (*models)["P1_QKV_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_6;
+    // (*models)["P1_QKV_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_5;
+    // (*models)["P1_QKV_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_8;
 
-    // (*models)["P3_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    // (*models)["P3_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
-    // (*models)["P3_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
-
-    // (*models)["P3_not_first_buffered"].applicationInputBuffers["value_states:0"] = &buff_5;
-    // (*models)["P3_not_first_buffered"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    // (*models)["P3_not_first_buffered"].applicationOutputBuffers["attn_output:0"] = &buff_3;
-
-    // temp, unless it works
-    // (*models)["P3_not_first_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    // (*models)["P3_not_first_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
-    // (*models)["P3_not_first_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+    (*models)["P1_QKV_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_3;
+    (*models)["P1_QKV_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_6;
+    (*models)["P1_QKV_reshaped_no_bias"].applicationOutputBuffers["dense_out:0"] = &buff_8;
 
     (*models)["P3_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
     (*models)["P3_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
     (*models)["P3_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
 
-    for (size_t i = 0; i < DECODERS; i++) {
-        std::string i_str = std::to_string(i);
-        (*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"] = &buff_3;
-        (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_4;
-    }
+    (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["FC1_reshaped_no_bias"].applicationOutputBuffers["fc1_mm_out:0"] = &buff_8;
 
-    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
-    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
-    (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
-    (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
+    (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["gelu_out:0"] = &buff_8;
+    (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["FC2_reshaped_no_bias"].applicationOutputBuffers["fc2_mm_out:0"] = &buff_8;
 
-    (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
-    (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
+    (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"] = &buff_8;
+    (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["FinalLMHead_reshaped_no_bias"].applicationOutputBuffers["final_output:0"] = &buff_8;
+
+    // for (size_t i = 0; i < DECODERS; i++) {
+    //     std::string i_str = std::to_string(i);
+    //     (*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"] = &buff_3;
+    //     (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_4;
+    // }
+
+    // (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
+    // (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
+    // (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
+    // (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
+
+    // (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
+    // (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
 }
 
 // std::string intialize_model_runtime(
@@ -846,27 +840,77 @@ std::string intialize_model_runtime(
 void create_user_buffers(
     std::map<std::string, ModelRuntime>& runtimes,
     size_t datasize, 
-    bool isTFBuffer
+    bool isTFBuffer,
+    const std::string& single_model_name = ""
 ) {
-    for (auto& pair : runtimes) {
-        const std::string& model_name = pair.first;
+    if (single_model_name != "") {
+        const std::string& model_name = single_model_name;
+        #ifdef DEBUG
+            std::cout << "\nMODELNAME: " << model_name << "\n";
+        #endif
+        for (const auto& input_name : runtimes[model_name].input_names) {
+            createUserBuffer(runtimes[model_name].inputMap, runtimes[model_name].applicationInputBuffers,
+                runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
+        }
+        for (const std::string& output_name : runtimes[model_name].output_names) {
+            createUserBuffer(runtimes[model_name].outputMap, runtimes[model_name].applicationOutputBuffers,
+                runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
+        }
+    }
+    else {
+        for (auto& pair : runtimes) {
+            const std::string& model_name = pair.first;
+            #ifdef DEBUG
+                std::cout << "\nMODELNAME: " << model_name << "\n";
+            #endif
+            // for (const auto& name_pair : model_buffer_sizes.at(model_name)) {
+            for (const auto& input_name : runtimes[model_name].input_names) {
+                createUserBuffer(runtimes[model_name].inputMap, runtimes[model_name].applicationInputBuffers,
+                    runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
+            }
+            for (const std::string& output_name : runtimes[model_name].output_names) {
+                createUserBuffer(runtimes[model_name].outputMap, runtimes[model_name].applicationOutputBuffers,
+                    runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
+            }
+        }
+    }
+}
+
+// modified for one
+void create_user_buffers_with_memory(
+    std::map<std::string, ModelRuntime>& runtimes,
+    zdl::DlSystem::UserMemoryMap& map,
+    std::vector<uint8_t>& temp_buff,
+    size_t datasize,
+    bool isTFBuffer,
+    const std::string& single_model_name = ""
+) {
+    if (single_model_name != "") {
+        const std::string& model_name = single_model_name;
         #ifdef DEBUG
             std::cout << "\nMODELNAME: " << model_name << "\n";
         #endif
         // for (const auto& name_pair : model_buffer_sizes.at(model_name)) {
         for (const auto& input_name : runtimes[model_name].input_names) {
-            #ifdef DEBUG
-                std::cout << "\n";
-            #endif
-            createUserBuffer(runtimes[model_name].inputMap, runtimes[model_name].applicationInputBuffers,
+            createMemoryMapUserBuffer(runtimes[model_name].inputMap, map, runtimes[model_name].applicationInputBuffers, temp_buff,
                 runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
         }
         for (const std::string& output_name : runtimes[model_name].output_names) {
-            #ifdef DEBUG
-                std::cout << "\n";
-            #endif
-            createUserBuffer(runtimes[model_name].outputMap, runtimes[model_name].applicationOutputBuffers,
+            createMemoryMapUserBuffer(runtimes[model_name].outputMap, map, runtimes[model_name].applicationOutputBuffers, temp_buff,
                 runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
+        }
+    }
+    else {
+        for (auto& pair : runtimes) {
+            const std::string& model_name = pair.first;
+            for (const auto& input_name : runtimes[model_name].input_names) {
+            createMemoryMapUserBuffer(runtimes[model_name].inputMap, map, runtimes[model_name].applicationInputBuffers, temp_buff,
+                runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
+            }
+            for (const std::string& output_name : runtimes[model_name].output_names) {
+                createMemoryMapUserBuffer(runtimes[model_name].outputMap, map, runtimes[model_name].applicationOutputBuffers, temp_buff,
+                    runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
+            }
         }
     }
 }
@@ -875,17 +919,19 @@ void reshapeModels(
     std::map<std::string, ModelRuntime>& models,
     std::string model_name,
     const std::vector<std::pair<std::string, std::vector<size_t>>>& new_map,
-    size_t datasize
+    size_t datasize,
+    std::vector<uint8_t>* temp_buff_ptr = nullptr,
+    zdl::DlSystem::UserMemoryMap* map_ptr = nullptr
 ) {
 
     #ifdef DEBUG
-        std::cout << "\t\treshapeModels() MODELNAME: " << model_name << "\n";
-        std::cout << "\t\tmodels[model_name].snpe: "  
+        std::cout << "\n\t\treshapeModels() MODELNAME: " << model_name << "\n";
+        std::cout << "models[model_name].snpe: "  
             << models[model_name].snpe.get() << "\n";
     #endif
 
     models[model_name].snpe.reset();
-    
+    // models[model_name].snpe.container = 
 
     bool useUserSuppliedBuffers = true;
     bool useCaching = false;
@@ -927,14 +973,24 @@ void reshapeModels(
         );
     }
 
-
+    std::vector<uint8_t>& temp_buff = *temp_buff_ptr;
+    zdl::DlSystem::UserMemoryMap& map = *map_ptr;
+    bool useMemoryMap = (temp_buff_ptr != nullptr);
+    if (useMemoryMap) { assert(map_ptr != nullptr); }
+    
     int i = 0;
     for (const auto& input_name : models[model_name].input_names) {
         #ifdef DEBUG
             std::cout << "input_name: " << input_name << "\n";
         #endif
-        modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
-            models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
+        if (useMemoryMap) {
+            modifyUserBufferWithMemoryMap(models[model_name].inputMap, map, models[model_name].applicationInputBuffers,
+                temp_buff, models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
+        }
+        else {
+            modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
+                models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
+        }
         i++;
     }
     i = 0;
@@ -942,8 +998,15 @@ void reshapeModels(
         #ifdef DEBUG
             std::cout << "output_name: " << output_name << "\n";
         #endif
-        modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
-            models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
+        if (useMemoryMap) {
+            modifyUserBufferWithMemoryMap(models[model_name].outputMap, map, models[model_name].applicationOutputBuffers,
+                temp_buff, models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
+        }
+        else {
+            modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
+                models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
+        }
+        // question: why not i++?
     }
 }
 
