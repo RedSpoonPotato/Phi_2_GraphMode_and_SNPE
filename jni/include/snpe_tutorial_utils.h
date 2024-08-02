@@ -189,22 +189,76 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(
     return snpe;
 }
 
+std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions(
+    std::unique_ptr<zdl::DlContainer::IDlContainer>& container,
+    zdl::DlSystem::Runtime_t runtime,
+    bool useUserSuppliedBuffers,
+    zdl::DlSystem::PlatformConfig platformConfig,
+    bool useCaching, bool cpuFixedPointMode,
+    std::vector<std::string>& input_names,
+    std::vector<std::string>& output_names
+    )
+{
+    std::unique_ptr<zdl::SNPE::SNPE> snpe;
+    zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+    zdl::DlSystem::RuntimeList runtimeList;
+    runtimeList.add(runtime);
+    zdl::DlSystem::IOBufferDataTypeMap dataMap;
+
+    printf("snpe before: %p\n", snpe.get());
+    // std::cout << "container.get()" << container.get() << std::endl;
+
+    auto ioDataType = zdl::DlSystem::IOBufferDataType_t::FIXED_POINT_8;
+    for (const auto& name : input_names) {
+        dataMap.add(name.c_str(), ioDataType);
+    }
+    for (const auto& name : output_names) {
+        dataMap.add(name.c_str(), ioDataType);
+    }
+
+    snpeBuilder.setBufferDataType(dataMap);
+
+    // end of add
+    std::cout << "going to build\n";
+    snpe = snpeBuilder.setOutputLayers({})
+        .setRuntimeProcessorOrder(runtimeList)
+        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
+        .build();
+    std::cout << "finished building\n";
+    printf("snpe after: %p\n", snpe.get());
+    return snpe;
+}
+
 
 // taken from example code
 std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex(std::unique_ptr<zdl::DlContainer::IDlContainer> & container,
                                                    zdl::DlSystem::Runtime_t runtime,
-                                                   zdl::DlSystem::RuntimeList runtimeList,
                                                    bool useUserSuppliedBuffers,
                                                    zdl::DlSystem::PlatformConfig platformConfig,
                                                    bool useCaching, bool cpuFixedPointMode)
 {
     std::unique_ptr<zdl::SNPE::SNPE> snpe;
     zdl::SNPE::SNPEBuilder snpeBuilder(container.get());
+    zdl::DlSystem::RuntimeList runtimeList;
+    runtimeList.add(runtime);
 
-    if(runtimeList.empty())
-    {
-        runtimeList.add(runtime);
+    { // delete later
+        // assert(runtime == zdl::DlSystem::Runtime_t::DSP);
+        // assert(runtimeList[0] == zdl::DlSystem::Runtime_t::DSP);
+        // assert(runtimeList.size() == 1);
+
+        // zdl::DlSystem::IOBufferDataTypeMap dataMap;
+        
+
+        // std::cout << "snpe ptr before: " << snpe.get() << "\n";
+        // snpe = snpeBuilder.setOutputLayers({})
+        //     .setRuntimeProcessorOrder(runtimeList)
+        //     .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
+        //     .build();
+        // std::cout << "snpe ptr after: " << snpe.get() << "\n";
+        // exit(0);
     }
+
     snpe = snpeBuilder.setOutputLayers({})
        .setRuntimeProcessorOrder(runtimeList)
        .setUseUserSuppliedBuffers(useUserSuppliedBuffers)
@@ -254,12 +308,13 @@ std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_ex_multipleOuts(std::unique_p
 std::unique_ptr<zdl::SNPE::SNPE> setBuilderOptions_reshape(
     std::unique_ptr<zdl::DlContainer::IDlContainer> & container,
     zdl::DlSystem::Runtime_t runtime,
-    zdl::DlSystem::RuntimeList runtimeList,
     bool useUserSuppliedBuffers,
     // zdl::DlSystem::PlatformConfig platformConfig,
     bool useCaching, bool cpuFixedPointMode,
     const std::vector<std::pair<std::string, std::vector<size_t>>>& dims_dict)
 {
+    zdl::DlSystem::RuntimeList runtimeList;
+    runtimeList.add(runtime);
     #ifdef DEBUG
         std::cout << "checkpoint 1\n";
     #endif

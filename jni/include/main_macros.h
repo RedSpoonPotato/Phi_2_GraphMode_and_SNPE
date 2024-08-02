@@ -65,9 +65,37 @@ void stall() {
 }
 
 #ifdef DEBUG
-    #define CLOCK_INIT std::chrono::_V2::system_clock::time_point start; std::chrono::_V2::system_clock::time_point end; int64_t duration;
-    #define CLOCK_START start = std::chrono::high_resolution_clock::now();
-    #define CLOCK_END end = std::chrono::high_resolution_clock::now(); duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(); std::cout << "duration: " << duration << "ms\n";
+    #define CLOCK_TYPE std::chrono::steady_clock
+    #define CLOCK_INIT CLOCK_TYPE::time_point start; CLOCK_TYPE::time_point end; int64_t duration;
+    #define CLOCK_START start = CLOCK_TYPE::now();
+    #define CLOCK_END end = CLOCK_TYPE::now(); duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(); std::cout << "duration: " << duration << "ms\n";
 #endif
+
+struct RuntimeParams {
+    zdl::DlSystem::Runtime_t runtime_type;
+    size_t datasize;
+    bool isTFBuffer;
+};
+
+void printRuntime(zdl::DlSystem::Runtime_t runtime) {
+    std::cout << "runtime: ";
+    switch (runtime)
+    {
+    case zdl::DlSystem::Runtime_t::CPU:
+        std::cout << "CPU32\n";
+        break;
+    case zdl::DlSystem::Runtime_t::GPU:
+        std::cout << "GPU32\n";
+        break;
+    case zdl::DlSystem::Runtime_t::GPU_FLOAT16:
+        std::cout << "GPU16\n";
+        break;
+    case zdl::DlSystem::Runtime_t::DSP:
+        std::cout << "DSP08\n";
+        break;
+    default:
+        break;
+    }
+}
 
 #endif

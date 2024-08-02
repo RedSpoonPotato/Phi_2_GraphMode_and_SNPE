@@ -1395,13 +1395,20 @@ void DynamicTruncationAndConcatentation(
         value_cache_shape.end()[-3] = kv_seq_len;
         // write back to key buffer
         // (1, 12, 32, 80) --> (1, 32, 12, 80)
-        transpose(
-            key_cache, key_states, {0, 2, 1, 3}, 
-            key_cache_shape, key_shape
-        );
+        // transpose(
+        //     key_cache, key_states, {0, 2, 1, 3}, 
+        //     key_cache_shape, key_shape
+        // );
         transpose(
             value_cache, value_states, {0, 2, 1, 3}, 
             value_cache_shape, value_shape
+        );
+
+        // changing key_states transpose to optimize for next computation
+        // {1, 12, 32, 80} --> {1, 32, 80, 12}
+        transpose(
+            key_cache, key_states, {0, 2, 3, 1}, 
+            key_cache_shape, key_shape
         );
     }
 

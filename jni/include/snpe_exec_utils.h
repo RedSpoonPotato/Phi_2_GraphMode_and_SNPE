@@ -58,6 +58,8 @@ struct ModelRuntime {
 
     zdl::DlSystem::Runtime_t runtime;
     zdl::DlSystem::RuntimeList runtimeList;
+    size_t datasize;
+    bool isTFBuffer;
     zdl::DlSystem::PlatformConfig platformConfig;
     std::unique_ptr<zdl::DlContainer::IDlContainer> container;
     std::unique_ptr<zdl::SNPE::SNPE> snpe;
@@ -408,9 +410,9 @@ void linkBuffers(
     (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
     // remove later
-    (*models)["MatmulTest"].applicationInputBuffers["query_states:0"] = &buff_3;
-    (*models)["MatmulTest"].applicationInputBuffers["key_states:0"] = &buff_4;
-    (*models)["MatmulTest"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+    // (*models)["MatmulTest"].applicationInputBuffers["query_states:0"] = &buff_3;
+    // (*models)["MatmulTest"].applicationInputBuffers["key_states:0"] = &buff_4;
+    // (*models)["MatmulTest"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
     // fix these buffer assingments later
     // (*models)["P1_QKV_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_3;
@@ -437,6 +439,9 @@ void linkBuffers(
     (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"] = &buff_8;
     (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
     (*models)["FinalLMHead_reshaped_no_bias"].applicationOutputBuffers["final_output:0"] = &buff_8;
+
+    (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_8;
+    (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
 
     // for (size_t i = 0; i < DECODERS; i++) {
     //     std::string i_str = std::to_string(i);
@@ -545,11 +550,11 @@ void linkBuffers(
 // assume runtime_modes
 std::string intialize_model_runtime(
     std::map<std::string, ModelRuntime>& runtimes, 
-    const std::map<std::string, zdl::DlSystem::Runtime_t>& runtime_modes)
+    const std::map<std::string, RuntimeParams>& runtime_params)
 {
     std::cout << "runtimes.size(): " << runtimes.size() << "\n"; // remove later
+    assert(runtimes.size() == runtime_params.size());
     int num_models = runtimes.size();
-    assert(runtime_modes.size() == num_models);
 
     for (auto const& pair : runtimes) {
 
@@ -559,7 +564,6 @@ std::string intialize_model_runtime(
         // if (c > 1) {
         //     size_t sum = 0; for (size_t j = 0;  j < 1000000000;j++) {sum++;} exit(0);   
         // }
-        
 
         const std::string& model = pair.first;
         #ifdef DEBUG
@@ -570,9 +574,10 @@ std::string intialize_model_runtime(
         runtimes[model].inputMap = zdl::DlSystem::UserBufferMap();
         runtimes[model].outputMap = zdl::DlSystem::UserBufferMap();
         // runtime_modes[str];
-        runtimes[model].runtime = checkRuntime(runtime_modes.at(model));
-        std::cout << "checkedRunteim\n";
-        runtimes[model].runtimeList.add(runtimes[model].runtime);
+        runtimes[model].runtime = checkRuntime(runtime_params.at(model).runtime_type);
+        runtimes[model].datasize = runtime_params.at(model).datasize;
+        runtimes[model].isTFBuffer = runtime_params.at(model).isTFBuffer;
+        // runtimes[model].runtimeList.add(runtimes[model].runtime);
         std::cout << "platform config options: " << runtimes[model].platformConfig.getPlatformOptions() << "\n";
         // runtimes[str].platformConfig.
 
@@ -584,7 +589,7 @@ std::string intialize_model_runtime(
 
         std::cout << "loading file: " << runtimes[model].dlc_path << "\n";
         #ifdef DEBUG
-            auto start = std::chrono::high_resolution_clock::now();
+            auto start = CLOCK_TYPE::now();
         #endif 
 
         /* new way of loading dlc */
@@ -595,13 +600,13 @@ std::string intialize_model_runtime(
         runtimes[model].container = loadContainerFromFile(runtimes[model].dlc_path);
 
         #ifdef DEBUG
-            auto end = std::chrono::high_resolution_clock::now();
+            auto end = CLOCK_TYPE::now();
             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
             std::cout << "time to load model " << runtimes[model].dlc_path << ": " << duration << "ms\n";
         #endif
 
         #ifdef DEBUG
-            auto start_2 = std::chrono::high_resolution_clock::now();
+            auto start_2 = CLOCK_TYPE::now();
         #endif
 
         // runtimes[str].snpe = setBuilderOptions(runtimes[str].container, runtimes[str].runtime, true);
@@ -631,11 +636,42 @@ std::string intialize_model_runtime(
         bool useCaching = false;
         bool cpuFixedPointMode = false;
         if (model.find("P1_1_reshaped_layer_") == std::string::npos) {
+
+            {
+                // remove later
+                // std::cout << "snpe: " << runtimes[model].snpe.get() << "\n";
+                // runtimes[model].runtime = zdl::DlSystem::Runtime_t::CPU;
+                // runtimes[model].snpe = setBuilderOptions_ex(
+                //     runtimes[model].container,
+                //     runtimes[model].runtime,
+                //     useUserSuppliedBuffers,
+                //     runtimes[model].platformConfig,
+                //     useCaching, cpuFixedPointMode);
+                // std::cout << "snpe: " << runtimes[model].snpe.get() << "\n";
+                // runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
+                // runtimes[model].output_names = StringListToVector(runtimes[model].snpe->getOutputTensorNames());
+
+                // runtimes[model].snpe.reset();
+                // std::cout << "snpe: " << runtimes[model].snpe.get() << "\n";
+                // runtimes[model].runtime = zdl::DlSystem::Runtime_t::DSP;
+                // runtimes[model].snpe = setBuilderOptions(
+                //     runtimes[model].container,
+                //     runtimes[model].runtime,
+                //     useUserSuppliedBuffers,
+                //     runtimes[model].platformConfig,
+                //     useCaching, cpuFixedPointMode,
+                //     runtimes[model].input_names,
+                //     runtimes[model].output_names
+                //     );
+                // std::cout << "snpe: " << runtimes[model].snpe.get() << "\n";
+                // exit(0);
+            }
+
+            // RESTORE LATER
             std::cout << "case 1\n";
             runtimes[model].snpe = setBuilderOptions_ex(
                 runtimes[model].container,
                 runtimes[model].runtime,
-                runtimes[model].runtimeList,
                 useUserSuppliedBuffers,
                 runtimes[model].platformConfig,
                 useCaching, cpuFixedPointMode);
@@ -705,7 +741,7 @@ std::string intialize_model_runtime(
         // }
         // exit(0);
 
-
+        std::cout << "finished building snpe\n";
         runtimes[model].input_names = StringListToVector(runtimes[model].snpe->getInputTensorNames());
         
         std::cout << "finished with StringListToVector\n";
@@ -713,7 +749,7 @@ std::string intialize_model_runtime(
         std::cout << "finished with StringListToVector\n";
 
         #ifdef DEBUG
-            auto end_2 = std::chrono::high_resolution_clock::now();
+            auto end_2 = CLOCK_TYPE::now();
             auto duration_2 = std::chrono::duration_cast<std::chrono::milliseconds>(end_2 - start_2).count();
             std::cout << "time to build model " << model << ": " << duration_2 << "ms\n\n";
         #endif
@@ -839,8 +875,8 @@ std::string intialize_model_runtime(
 
 void create_user_buffers(
     std::map<std::string, ModelRuntime>& runtimes,
-    size_t datasize, 
-    bool isTFBuffer,
+    size_t datasize=0,
+    bool isTFBuffer=false,
     const std::string& single_model_name = ""
 ) {
     if (single_model_name != "") {
@@ -866,11 +902,13 @@ void create_user_buffers(
             // for (const auto& name_pair : model_buffer_sizes.at(model_name)) {
             for (const auto& input_name : runtimes[model_name].input_names) {
                 createUserBuffer(runtimes[model_name].inputMap, runtimes[model_name].applicationInputBuffers,
-                    runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(), datasize, isTFBuffer);
+                    runtimes[model_name].input_user_buff_vec, runtimes[model_name].snpe, input_name.c_str(),
+                    runtimes[model_name].datasize, runtimes[model_name].isTFBuffer);
             }
             for (const std::string& output_name : runtimes[model_name].output_names) {
                 createUserBuffer(runtimes[model_name].outputMap, runtimes[model_name].applicationOutputBuffers,
-                    runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), datasize, isTFBuffer);
+                    runtimes[model_name].output_user_buff_vec, runtimes[model_name].snpe, output_name.c_str(), 
+                    runtimes[model_name].datasize, runtimes[model_name].isTFBuffer);
             }
         }
     }
@@ -919,7 +957,6 @@ void reshapeModels(
     std::map<std::string, ModelRuntime>& models,
     std::string model_name,
     const std::vector<std::pair<std::string, std::vector<size_t>>>& new_map,
-    size_t datasize,
     std::vector<uint8_t>* temp_buff_ptr = nullptr,
     zdl::DlSystem::UserMemoryMap* map_ptr = nullptr
 ) {
@@ -941,7 +978,6 @@ void reshapeModels(
         models[model_name].snpe = setBuilderOptions_reshape(
             models[model_name].container,
             models[model_name].runtime,
-            models[model_name].runtimeList,
             useUserSuppliedBuffers,
             useCaching, 
             cpuFixedPointMode,
@@ -973,6 +1009,11 @@ void reshapeModels(
         );
     }
 
+    #ifdef DEBUG
+        std::cout << "models[model_name].snpe after: "  
+            << models[model_name].snpe.get() << "\n";
+    #endif
+
     std::vector<uint8_t>& temp_buff = *temp_buff_ptr;
     zdl::DlSystem::UserMemoryMap& map = *map_ptr;
     bool useMemoryMap = (temp_buff_ptr != nullptr);
@@ -985,11 +1026,13 @@ void reshapeModels(
         #endif
         if (useMemoryMap) {
             modifyUserBufferWithMemoryMap(models[model_name].inputMap, map, models[model_name].applicationInputBuffers,
-                temp_buff, models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
+                temp_buff, models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), 
+                models[model_name].datasize, i);
         }
         else {
             modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
-                models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), datasize, i);
+                models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), 
+                models[model_name].datasize, i);
         }
         i++;
     }
@@ -1000,11 +1043,13 @@ void reshapeModels(
         #endif
         if (useMemoryMap) {
             modifyUserBufferWithMemoryMap(models[model_name].outputMap, map, models[model_name].applicationOutputBuffers,
-                temp_buff, models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
+                temp_buff, models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), 
+                models[model_name].datasize, i);
         }
         else {
             modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
-                models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), datasize, i);
+                models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), 
+                models[model_name].datasize, i);
         }
         // question: why not i++?
     }
@@ -1028,13 +1073,13 @@ void reshapeInitial(
         {"query_states:0", {32, seq_len, 80}},
         {"key_states:0", {32, tot_seq_len, 80}}
         // {"attention_mask:0", {tot_seq_len}},
-    }, unquant_datasize);
+    });
 
     reshapeModels(*models, "P3_reshaped",
     {
         {"attn_weights:0", {32, seq_len, tot_seq_len}},
         {"value_states:0", {32, tot_seq_len, 80}}
-    }, quant_datasize);
+    });
 
     for (size_t i = 0; i < DECODERS; i++) {
 
@@ -1047,32 +1092,32 @@ void reshapeInitial(
         reshapeModels(*models, "P1_Q_reshaped_layer_" + i_str,
             {
                 {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            }, quant_datasize);
+            });
 
         reshapeModels(*models, "P1_K_reshaped_layer_" + i_str,
             {
                 {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            }, quant_datasize);
+            });
 
         reshapeModels(*models, "P1_V_reshaped_layer_" + i_str,
             {
                 {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            }, quant_datasize);
+            });
 
         reshapeModels(*models, "P1_FC1_reshaped_layer_" + i_str,
             {
                 {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            }, quant_datasize);
+            });
 
         reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
             {
                 {"gelu_fc1_out:0", {seq_len, INTERMEDIATE_SIZE}}
-            }, quant_datasize);
+            });
 
         reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
             {
                 {"p3_out:0", {seq_len, HIDDEN_SIZE}}
-            }, quant_datasize);
+            });
     }
 
     reshapeModels(*models, "P4_2_reshaped",
@@ -1080,13 +1125,13 @@ void reshapeInitial(
             {"p4_1_out:0", {seq_len, HIDDEN_SIZE}},
             {"feed_forward_hidden_states:0", {seq_len, HIDDEN_SIZE}},
             {"residual:0", {seq_len, HIDDEN_SIZE}},
-        }, unquant_datasize);
+        });
 
     // exit(0);
-    reshapeModels(*models, "Final_LM_Head",
+    reshapeModels(*models, "FinalLMHead_reshaped_no_bias",
         {
             {"final_input:0", {seq_len, HIDDEN_SIZE}}
-        }, quant_datasize);
+        });
 }
 
 void reshapeStuff(
@@ -1102,13 +1147,13 @@ void reshapeStuff(
     {
         {"query_states:0", {32, 1, 80}},
         {"key_states:0", {32, tot_seq_len, 80}}
-    }, unquant_datasize);
+    });
 
     reshapeModels(*models, "P3_reshaped",
     {
         {"attn_weights:0", {32, 1, tot_seq_len}},
         {"value_states:0", {32, tot_seq_len, 80}}
-    }, quant_datasize);
+    });
 
     if (iteration_num == 0) {
         // reshapeModels(*models, "gelu",
@@ -1127,32 +1172,32 @@ void reshapeStuff(
             reshapeModels(*models, "P1_Q_reshaped_layer_" + i_str,
                 {
                     {"hidden_states:0", {1, HIDDEN_SIZE}}
-                }, quant_datasize);
+                });
 
             reshapeModels(*models, "P1_K_reshaped_layer_" + i_str,
                 {
                     {"hidden_states:0", {1, HIDDEN_SIZE}}
-                }, quant_datasize);
+                });
 
             reshapeModels(*models, "P1_V_reshaped_layer_" + i_str,
                 {
                     {"hidden_states:0", {1, HIDDEN_SIZE}}
-                }, quant_datasize);
+                });
 
             reshapeModels(*models, "P1_FC1_reshaped_layer_" + i_str,
                 {
                     {"hidden_states:0", {1, HIDDEN_SIZE}}
-                }, quant_datasize);
+                });
 
             reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
                 {
                     {"gelu_fc1_out:0", {1, INTERMEDIATE_SIZE}}
-                }, quant_datasize);
+                });
 
             reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
                 {
                     {"p3_out:0", {1, HIDDEN_SIZE}}
-                }, quant_datasize);
+                });
         }
 
         reshapeModels(*models, "P4_2_reshaped",
@@ -1160,12 +1205,12 @@ void reshapeStuff(
                 {"p4_1_out:0", {1, HIDDEN_SIZE}},
                 {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
                 {"residual:0", {1, HIDDEN_SIZE}},
-            }, unquant_datasize);
+            });
 
         reshapeModels(*models, "Final_LM_Head",
             {
                 {"final_input:0", {1, HIDDEN_SIZE}}
-            }, quant_datasize);
+            });
     }
 
 }
@@ -1350,7 +1395,8 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 // assuming either uint8_t or float for now
 void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name, bool quantize) {
     #ifdef DEBUG
-        std::cout << "\nEXECUTION STAGE <" << model_name << ">\n";
+        std::cout << "\nEXECUTION STAGE <" << model_name << "> ";
+        printRuntime(models[model_name].runtime);
         for (const std::string& input_name : models[model_name].input_names) {
             if (quantize) {
                 printN(input_name, (uint8_t*)models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT, quantize);

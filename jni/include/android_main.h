@@ -25,15 +25,14 @@ runtime_modes: {
 
 std::string modelLaunch(
     const std::string& input_txt,
-    const std::map<std::string, zdl::DlSystem::Runtime_t>& runtime_modes,
-    const size_t& datasize,
-    const bool isTFBuffer,
+    const std::map<std::string, RuntimeParams>& runtime_params,
     const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths, // abs paths
     const std::map<std::string, std::string>& otherPaths, // abs path of sin, cos, embeddingFIle
     const uint32_t& max_iterations, 
     const Free_Status exitAndFree,
     const int debugReturnCode,
     const uint32_t end_token_id,
-    const bool use_end_token_id);
+    const bool use_end_token_id
+);
 
 #endif
