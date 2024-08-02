@@ -1,6 +1,7 @@
 // built for testing load times of DLCs
 
 #include "android_main.h"
+#include "main_stuff.hpp"
 
 #include <cassert>
 #include <iostream>
@@ -14,110 +15,45 @@ int main(int argc, char** argv) {
     std::string input_txt = "What is your favorite color?. Mine is red.";
 
     // std::vector<zdl::DlSystem::Runtime_t> runtime_modes;
-    std::map<std::string, zdl::DlSystem::Runtime_t> runtime_modes;
+    std::map<std::string, RuntimeParams> runtimes;
     // auto runtime_type = zdl::DlSystem::Runtime_t::DSP;
     auto runtime_type = zdl::DlSystem::Runtime_t::CPU;
 
-    size_t datasize;
-    bool isTFBuffer;
-    if (std::strncmp(argv[1], "dsp08", 5) == 0) { 
-        runtime_type = zdl::DlSystem::Runtime_t::DSP;
-        datasize = 1;
-        isTFBuffer = true;
-    }
-    else if (std::strncmp(argv[1], "gpu32", 5) == 0) { 
-        runtime_type = zdl::DlSystem::Runtime_t::GPU;
-        datasize = 4;
-        isTFBuffer = false;
-    }
-    else if (std::strncmp(argv[1], "gpu16", 5) == 0) { 
-        runtime_type = zdl::DlSystem::Runtime_t::GPU_FLOAT16;
-        datasize = 2;
-        isTFBuffer = false;
-    }
-    else if (std::strncmp(argv[1], "cpu32", 5) == 0) { 
-        runtime_type = zdl::DlSystem::Runtime_t::CPU;
-        datasize = 4;
-        isTFBuffer = false;
-    }
-    else {
-        std::cerr << "problem with parsing, argv[1]: " << argv[1]; return 1; 
-    }
-
     // grab max_iterations
     char* end;
-    uint32_t max_iterations = static_cast<uint32_t>(strtoul(argv[2], &end, 10));
+    uint32_t max_iterations = static_cast<uint32_t>(strtoul(argv[1], &end, 10));
+    std::cout << "max iterations: " << max_iterations << "\n";
     assert(*end == '\0');
 
-    // remove this if u add cpu and/or gpu support
-    // assert(runtime_type == zdl::DlSystem::Runtime_t::DSP);
+    // grab paths
+    std::string path;
+    path = std::string(argv[2]);
 
-    // setting names
-    std::set<std::string> model_names;
-    for (int i = 0; i < DECODERS; i++) {
-        // std::string i_str = std::to_string(i);
-        // model_names.insert("P1_Q_reshaped_layer_" + i_str);
-        // model_names.insert("P1_K_reshaped_layer_" + i_str);
-        // model_names.insert("P1_V_reshaped_layer_" + i_str);
-        // model_names.insert("P1_FC1_reshaped_layer_" + i_str);
-        // model_names.insert("P1_2_reshaped_layer_" + i_str);
-        // model_names.insert("P4_1_reshaped_layer_" + i_str);
-    }
-    model_names.insert("FC1_reshaped_no_bias");
-    model_names.insert("FC2_reshaped_no_bias");
-    model_names.insert("FinalLMHead_reshaped_no_bias");
-
-    // model_names.insert("gelu"); // might fail to reshape, if so, just implement manually in executable
-    model_names.insert("P2_reshaped");
-    // model_names.insert("P2_1_first_buffered");
-    // model_names.insert("P2_not_first_reshaped");
-    model_names.insert("P3_reshaped");
-    // model_names.insert("P3_first_buffered");
-    // model_names.insert("P3_not_first_reshaped"); // this had problems so using buffered version instead to avoid reshaping
-    // model_names.insert("P3_not_first_buffered");
-    // model_names.insert("P4_2_reshaped");
-    // model_names.insert("Final_LM_Head");
-
-    // model_names.insert("P1_QKV_reshaped_with_bias");
-    model_names.insert("P1_QKV_reshaped_no_bias");
-
-
-    // remove later
-    model_names.insert("MatmulTest");
-
-
-    // setting runtime
-    for (const std::string& model_name : model_names) {
-        runtime_modes[model_name] = runtime_type;
-    }
+    runtimeArgParse(argv, argc, runtimes);
 
     // setting dlc paths
     std::set<std::pair<std::string, std::string>> ModelNameAndPaths;
-    // std::string dlcDir = "./fp16_test/model_split/q_dlc/q_model_"; // restore this
-    std::string dlcDir = "./fp16_test/model_split/dlc/";
-    // std::string dlcDir = "./dlc/"; // for laptop
-    std::string dlcSuffix = "model_"; // for laptop
-    for (const std::string& model_name : model_names) {
+
+    std::string dlcDir;
+    std::string dlcSuffix;
+    std::string model_name;
+    
+    for (const auto pair : runtimes) {
+        model_name = pair.first;
+        if (pair.second.runtime_type == zdl::DlSystem::Runtime_t::DSP) {
+            dlcDir = path + "/q_dlc/";
+            dlcSuffix = "q_model_";
+        }
+        else {
+            dlcDir = path + "/dlc/";
+            dlcSuffix = "model_";
+        }
         ModelNameAndPaths.insert({model_name, dlcDir + dlcSuffix + model_name + ".dlc"});
     }
-
-    // remove this later
-    // for (const std::string& model_name : model_names) {
-    //     if (model_name == "P3_not_first_reshaped") {
-    //         ModelNameAndPaths.insert({model_name, dlcDir + "P3_not_first_reshaped_test.dlc"});
-    //     }
-    //     else if (model_name == "P1_reshaped_layer_0") {
-    //         ModelNameAndPaths.insert({model_name, dlcDir + "P1_reshaped_test.dlc"});
-    //     }
-    //     else {
-    //         ModelNameAndPaths.insert({model_name, dlcDir + model_name + ".dlc"});
-    //     }
-    // }
 
 
     // setting sin, cos, embedding paths
     std::map<std::string, std::string> otherPaths;
-    std::string dataPath = "./fp16_test/model_split/data/";
     // std::string dataPath = "./data/";
     otherPaths["sin"] = "sin_cached.bin"; // 32-bit
     otherPaths["cos"] = "cos_cached.bin"; // 32-bit
@@ -133,7 +69,7 @@ int main(int argc, char** argv) {
     otherPaths["final_layernorm_weight"]    = "final_layernorm_weight.bin";
     otherPaths["final_layernorm_bias"]      = "final_layernorm_bias.bin";
     for (auto& pair : otherPaths) {
-        pair.second = dataPath + pair.second;
+        pair.second = path + "/data/" + pair.second;
     }
 
     // other params
@@ -146,9 +82,7 @@ int main(int argc, char** argv) {
 
     output_str = modelLaunch(
         input_txt,
-        runtime_modes,
-        datasize,
-        isTFBuffer,
+        runtimes,
         ModelNameAndPaths, // abs paths
         otherPaths, // abs path of sin, cos, embeddingFIle
         max_iterations, 
