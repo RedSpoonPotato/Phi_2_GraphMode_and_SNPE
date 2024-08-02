@@ -1,7 +1,9 @@
-# CXX := 
+# CXX := clang++-14
 
 # I AM ADDING THE "-g", can remove later
 CXXFLAGS += -std=c++11 -fPIC -march=x86-64 -g
+# CXXFLAGS += -std=c++20 -fPIC -march=x86-64 -g
+
 
 # Include paths
 INCLUDES += -I ./
@@ -11,7 +13,7 @@ INCLUDES += -I $(SNPE_ROOT)/include/zdl -I $(SRC_DIR)/include/ -I $(SNPE_ROOT)/i
 LDFLAGS  += -L $(SNPE_ROOT)/lib/x86_64-linux-clang -L $(SRC_DIR) -L ./jni/obj/local/x86_64-linux-clang
 
 # Specify the link libraries
-LLIBS    += -lSNPE -lmain -lboost_regex -lboost_system -lboost_filesystem
+LLIBS    += -lSNPE -lmain -lboost_regex -lboost_system -lboost_filesystem -lboost_atomic
 
 # Specify the target
 PROGRAM  := load_test
