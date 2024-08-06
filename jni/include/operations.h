@@ -1233,8 +1233,6 @@ void DynamicTruncationAndConcatentation(
     // std::vector<size_t>& q_out_shape,
     // std::vector<size_t>& k_out_shape,
     // std::vector<size_t>& v_out_shape,
-    const std::vector<size_t>& sin_cached_shape,
-    const std::vector<size_t>& cos_cached_shape,
     std::vector<size_t>& sin_shape,
     std::vector<size_t>& cos_shape,
     std::vector<size_t>& key_cache_shape,
@@ -1289,6 +1287,9 @@ void DynamicTruncationAndConcatentation(
 
     // printTensor("cos before rotary_emb", cos_cached, {11, 32});
     // printTensor("sin before rotary_emb", sin_cached, {11, 32});
+
+    std::vector<size_t> sin_cached_shape = {MAX_SEQ_LEN, 32};
+    std::vector<size_t> cos_cached_shape = {MAX_SEQ_LEN, 32};
 
     // rotary emb
     rotary_emb(
@@ -1563,6 +1564,14 @@ void NewGELU(
     for (size_t i = 0; i < total_elements; i++) {
         out[i] = 0.5f * in[i] * (1.0f + (float)tanh(sqrt(2.0 / M_PI) * (in[i] + 0.044715 * pow(in[i], 3.0))));
     }
+}
+
+// [upcast, divide by sqrt, apply mask], softmax, downcast
+void upcastDivideSqrtApplyMask(
+    QUANT_TYPE* p2,
+    std::vector<size_t>& p2_shape
+) {
+
 }
 
 #endif

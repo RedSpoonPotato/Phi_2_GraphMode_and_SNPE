@@ -36,8 +36,13 @@
 
 #define VOCAB_SIZE 51200
 
-#define DECODERS 3
+#define ATTENTION_HEADS 32
+// #define HEAD_DIM (HIDDEN_SIZE / ATTENTION_HEADS)
+#define HEAD_DIM 80
+
+// #define DECODERS 3
 // #define DECODERS 16
+#define DECODERS 32
 
 
 #define SIN_COS_BUFF_SIZE  (SIN_COS_DIM*SIN_COS_MAX_SEQ_LEN)

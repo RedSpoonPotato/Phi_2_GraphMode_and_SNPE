@@ -369,6 +369,55 @@ void loadLayerNorms(
     loadFileAndDontResize(final_layernorm_bias, otherPaths.at("final_layernorm_bias"));
 }
 
+template <typename T>
+void loadDecoderWeightsAndBiases(
+    std::vector<std::vector<T>>& q_weights,
+    std::vector<std::vector<T>>& k_weights, 
+    std::vector<std::vector<T>>& v_weights, 
+    std::vector<std::vector<T>>& fc1_weights, 
+    std::vector<std::vector<T>>& fc2_weights, 
+    std::vector<std::vector<T>>& p4_weights,
+    std::vector<std::vector<T>>& q_biases,
+    std::vector<std::vector<T>>& k_biases, 
+    std::vector<std::vector<T>>& v_biases, 
+    std::vector<std::vector<T>>& fc1_biases, 
+    std::vector<std::vector<T>>& fc2_biases, 
+    std::vector<std::vector<T>>& p4_biases,
+    const std::map<std::string, std::string>& otherPaths,
+    size_t quant_size
+) {
+    for (size_t i = 0; i < DECODERS; i++) {
+        std::string i_str = std::to_string(i);
+        q_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+        k_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+        v_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+        fc1_weights[i].resize(HIDDEN_SIZE * INTERMEDIATE_SIZE * quant_size, 0);
+        fc2_weights[i].resize(INTERMEDIATE_SIZE * HIDDEN_SIZE * quant_size, 0);
+        p4_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+
+        q_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+        k_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+        v_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+        fc1_biases[i].resize(INTERMEDIATE_SIZE * quant_size, 0);
+        fc2_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+        p4_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+
+        loadFileAndDontResize(q_weights[i], otherPaths.at("q_weight_" + i_str));
+        loadFileAndDontResize(k_weights[i], otherPaths.at("k_weight_" + i_str));
+        loadFileAndDontResize(v_weights[i], otherPaths.at("v_weight_" + i_str));
+        loadFileAndDontResize(fc1_weights[i], otherPaths.at("fc1_weight_" + i_str));
+        loadFileAndDontResize(fc2_weights[i], otherPaths.at("fc2_weight_" + i_str));
+        loadFileAndDontResize(p4_weights[i], otherPaths.at("p4_weight_" + i_str));
+
+        loadFileAndDontResize(q_biases[i], otherPaths.at("q_bias_" + i_str));
+        loadFileAndDontResize(k_biases[i], otherPaths.at("k_bias_" + i_str));
+        loadFileAndDontResize(v_biases[i], otherPaths.at("v_bias_" + i_str));
+        loadFileAndDontResize(fc1_biases[i], otherPaths.at("fc1_bias_" + i_str));
+        loadFileAndDontResize(fc2_biases[i], otherPaths.at("fc2_bias_" + i_str));
+        loadFileAndDontResize(p4_biases[i], otherPaths.at("p4_bias_" + i_str));
+    }
+}
+
 
 void linkBuffers(
     std::map<std::string, ModelRuntime> *models,
@@ -405,10 +454,6 @@ void linkBuffers(
         // (*models)["P1_2_reshaped_layer_" + i_str].applicationOutputBuffers["feed_forward_hidden_states:0"] = &buff_6;
     }
 
-    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"] = &buff_3;
-    (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
-    (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
-
     // remove later
     // (*models)["MatmulTest"].applicationInputBuffers["query_states:0"] = &buff_3;
     // (*models)["MatmulTest"].applicationInputBuffers["key_states:0"] = &buff_4;
@@ -420,27 +465,56 @@ void linkBuffers(
     // (*models)["P1_QKV_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_5;
     // (*models)["P1_QKV_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_8;
 
-    (*models)["P1_QKV_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_3;
-    (*models)["P1_QKV_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_6;
-    (*models)["P1_QKV_reshaped_no_bias"].applicationOutputBuffers["dense_out:0"] = &buff_8;
+    // (*models)["P1_QKV_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_3;
+    // (*models)["P1_QKV_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_6;
+    // (*models)["P1_QKV_reshaped_no_bias"].applicationOutputBuffers["dense_out:0"] = &buff_8;
+
+    (*models)["P1_Q_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    (*models)["P1_Q_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["P1_Q_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["P1_Q_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_3;
+
+    (*models)["P1_K_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    (*models)["P1_K_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["P1_K_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["P1_K_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_4;
+
+    (*models)["P1_V_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    (*models)["P1_V_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["P1_V_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["P1_V_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_5;
+
+    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"] = &buff_3;
+    (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
+    (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
 
     (*models)["P3_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
     (*models)["P3_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
     (*models)["P3_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
 
-    (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
-    (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
-    (*models)["FC1_reshaped_no_bias"].applicationOutputBuffers["fc1_mm_out:0"] = &buff_8;
+    (*models)["FC1_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    (*models)["FC1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["FC1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["FC1_reshaped_with_bias"].applicationOutputBuffers["fc1_out:0"] = &buff_6;
 
-    (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["gelu_out:0"] = &buff_8;
-    (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
-    (*models)["FC2_reshaped_no_bias"].applicationOutputBuffers["fc2_mm_out:0"] = &buff_8;
+    (*models)["FC2_reshaped_with_bias"].applicationInputBuffers["gelu_out:0"] = &buff_8;
+    (*models)["FC2_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["FC2_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["FC2_reshaped_with_bias"].applicationOutputBuffers["fc2_out:0"] = &buff_6;
 
-    (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"] = &buff_8;
+    // (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    // (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    // (*models)["FC1_reshaped_no_bias"].applicationOutputBuffers["fc1_mm_out:0"] = &buff_8;
+
+    // (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["gelu_out:0"] = &buff_8;
+    // (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    // (*models)["FC2_reshaped_no_bias"].applicationOutputBuffers["fc2_mm_out:0"] = &buff_8;
+
+    (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"] = &buff_3;
     (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
     (*models)["FinalLMHead_reshaped_no_bias"].applicationOutputBuffers["final_output:0"] = &buff_8;
 
-    (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_8;
+    (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
     (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
 
     // for (size_t i = 0; i < DECODERS; i++) {
@@ -449,10 +523,15 @@ void linkBuffers(
     //     (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_4;
     // }
 
-    // (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
-    // (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
-    // (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
-    // (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
+    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
+    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["P4_1_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_4;
+
+    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
+    (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
 
     // (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
     // (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
@@ -1057,162 +1136,132 @@ void reshapeModels(
 
 // is called once per modelLaunch()
 void reshapeInitial(
-    std::map<std::string, ModelRuntime> *models,
+    std::map<std::string, ModelRuntime>& models,
     const size_t seq_len,
     const size_t tot_seq_len,
     const size_t quant_datasize,
     const size_t unquant_datasize
 ) {
-    // reshapeModels(*models, "gelu",
-    //     {
-    //         {"input:0", {seq_len, INTERMEDIATE_SIZE}}
-    //     }, unquant_datasize);
 
-    reshapeModels(*models, "P2_reshaped",
+    reshapeModels(models, "P2_reshaped",
     {
         {"query_states:0", {32, seq_len, 80}},
         {"key_states:0", {32, tot_seq_len, 80}}
-        // {"attention_mask:0", {tot_seq_len}},
     });
 
-    reshapeModels(*models, "P3_reshaped",
+    reshapeModels(models, "P3_reshaped",
     {
         {"attn_weights:0", {32, seq_len, tot_seq_len}},
         {"value_states:0", {32, tot_seq_len, 80}}
     });
 
-    for (size_t i = 0; i < DECODERS; i++) {
+    reshapeModels(models, "P1_Q_reshaped_with_bias",
+        {
+            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+        });
 
-        std::string i_str = std::to_string(i);
+    reshapeModels(models, "P1_K_reshaped_with_bias",
+        {
+            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+        });
 
-        // reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
-        //     {
-        //         {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-        //     }, quant_datasize);
-        reshapeModels(*models, "P1_Q_reshaped_layer_" + i_str,
-            {
-                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            });
+    reshapeModels(models, "P1_V_reshaped_with_bias",
+        {
+            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+        });
 
-        reshapeModels(*models, "P1_K_reshaped_layer_" + i_str,
-            {
-                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            });
+    reshapeModels(models, "FC1_reshaped_with_bias",
+        {
+            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+        });
 
-        reshapeModels(*models, "P1_V_reshaped_layer_" + i_str,
-            {
-                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            });
+    reshapeModels(models, "FC2_reshaped_with_bias",
+        {
+            {"gelu_out:0", {seq_len, INTERMEDIATE_SIZE}}
+        });
 
-        reshapeModels(*models, "P1_FC1_reshaped_layer_" + i_str,
-            {
-                {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
-            });
+    reshapeModels(models, "P4_1_reshaped_with_bias",
+        {
+            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+        });
 
-        reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
-            {
-                {"gelu_fc1_out:0", {seq_len, INTERMEDIATE_SIZE}}
-            });
-
-        reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
-            {
-                {"p3_out:0", {seq_len, HIDDEN_SIZE}}
-            });
-    }
-
-    reshapeModels(*models, "P4_2_reshaped",
+    reshapeModels(models, "P4_2_reshaped",
         {
             {"p4_1_out:0", {seq_len, HIDDEN_SIZE}},
             {"feed_forward_hidden_states:0", {seq_len, HIDDEN_SIZE}},
             {"residual:0", {seq_len, HIDDEN_SIZE}},
         });
 
-    // exit(0);
-    reshapeModels(*models, "FinalLMHead_reshaped_no_bias",
+    reshapeModels(models, "Final_LM_Head",
         {
             {"final_input:0", {seq_len, HIDDEN_SIZE}}
         });
 }
 
 void reshapeStuff(
-    std::map<std::string, ModelRuntime> *models,
+    std::map<std::string, ModelRuntime>& models,
     const uint32_t iteration_num,
     const size_t tot_seq_len,
     const size_t quant_datasize,
     const size_t unquant_datasize
 ) {
 
-
-    reshapeModels(*models, "P2_reshaped",
+    reshapeModels(models, "P2_reshaped",
     {
         {"query_states:0", {32, 1, 80}},
         {"key_states:0", {32, tot_seq_len, 80}}
     });
 
-    reshapeModels(*models, "P3_reshaped",
+    reshapeModels(models, "P3_reshaped",
     {
         {"attn_weights:0", {32, 1, tot_seq_len}},
         {"value_states:0", {32, tot_seq_len, 80}}
     });
 
     if (iteration_num == 0) {
-        // reshapeModels(*models, "gelu",
-        //     {
-        //         {"input:0", {1, INTERMEDIATE_SIZE}}
-        //     }, unquant_datasize);
 
-        for (size_t i = 0; i < DECODERS; i++) {
-            std::string i_str = std::to_string(i);
+        reshapeModels(models, "P1_Q_reshaped_with_bias",
+            {
+                {"hidden_states:0", {1, HIDDEN_SIZE}}
+            });
 
-            // reshapeModels(*models, "P1_1_reshaped_layer_" + i_str,
-            //     {
-            //         {"hidden_states:0", {1, HIDDEN_SIZE}}
-            //     }, quant_datasize);
+        reshapeModels(models, "P1_K_reshaped_with_bias",
+            {
+                {"hidden_states:0", {1, HIDDEN_SIZE}}
+            });
 
-            reshapeModels(*models, "P1_Q_reshaped_layer_" + i_str,
-                {
-                    {"hidden_states:0", {1, HIDDEN_SIZE}}
-                });
+        reshapeModels(models, "P1_V_reshaped_with_bias",
+            {
+                {"hidden_states:0", {1, HIDDEN_SIZE}}
+            });
 
-            reshapeModels(*models, "P1_K_reshaped_layer_" + i_str,
-                {
-                    {"hidden_states:0", {1, HIDDEN_SIZE}}
-                });
+        reshapeModels(models, "FC1_reshaped_with_bias",
+            {
+                {"hidden_states:0", {1, HIDDEN_SIZE}}
+            });
 
-            reshapeModels(*models, "P1_V_reshaped_layer_" + i_str,
-                {
-                    {"hidden_states:0", {1, HIDDEN_SIZE}}
-                });
+        reshapeModels(models, "FC2_reshaped_with_bias",
+            {
+                {"gelu_out:0", {1, INTERMEDIATE_SIZE}}
+            });
 
-            reshapeModels(*models, "P1_FC1_reshaped_layer_" + i_str,
-                {
-                    {"hidden_states:0", {1, HIDDEN_SIZE}}
-                });
+        reshapeModels(models, "P4_1_reshaped_with_bias",
+            {
+                {"hidden_states:0", {1, HIDDEN_SIZE}}
+            });
 
-            reshapeModels(*models, "P1_2_reshaped_layer_" + i_str,
-                {
-                    {"gelu_fc1_out:0", {1, INTERMEDIATE_SIZE}}
-                });
-
-            reshapeModels(*models, "P4_1_reshaped_layer_" + i_str,
-                {
-                    {"p3_out:0", {1, HIDDEN_SIZE}}
-                });
-        }
-
-        reshapeModels(*models, "P4_2_reshaped",
+        reshapeModels(models, "P4_2_reshaped",
             {
                 {"p4_1_out:0", {1, HIDDEN_SIZE}},
                 {"feed_forward_hidden_states:0", {1, HIDDEN_SIZE}},
                 {"residual:0", {1, HIDDEN_SIZE}},
             });
 
-        reshapeModels(*models, "Final_LM_Head",
+        reshapeModels(models, "FinalLMHead_reshaped_no_bias",
             {
                 {"final_input:0", {1, HIDDEN_SIZE}}
             });
     }
-
 }
 
 void freeModels(std::vector<ModelRuntime>* models) {
@@ -1392,6 +1441,42 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 // }
 
 
+bool reMapUserBuffer(
+    std::map<std::string, ModelRuntime>& models,
+    std::string model_name,
+    std::string buffer_name
+) {
+    CLOCK_INIT
+    std::cout << "Measuring reMapUserBuffer\n";
+    CLOCK_START
+    // find index
+    size_t index;
+    auto it = std::find(models[model_name].input_names.begin(), models[model_name].input_names.end(), buffer_name);
+    if (it != models[model_name].input_names.end()) {
+        index = std::distance(models[model_name].input_names.end(), it);
+        modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
+            models[model_name].input_user_buff_vec, models[model_name].snpe, buffer_name.c_str(), 
+            models[model_name].datasize, index);
+    }
+    else {
+        it = std::find(models[model_name].output_names.begin(), models[model_name].output_names.end(), buffer_name);
+        if (it != models[model_name].output_names.end()) {
+            index = std::distance(models[model_name].output_names.end(), it);
+            modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
+                models[model_name].output_user_buff_vec, models[model_name].snpe, buffer_name.c_str(), 
+                models[model_name].datasize, index);
+        }
+        else {
+            // buffer_name does not seem to exist
+            return false;
+        }
+    }
+    CLOCK_END
+    std::cout << "Measured reMapUserBuffer\n";
+    return true;
+}
+
+
 // assuming either uint8_t or float for now
 void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name, bool quantize) {
     #ifdef DEBUG
@@ -1419,6 +1504,51 @@ void execute(std::map<std::string, ModelRuntime>& models, const std::string& mod
     #endif
 }
 
+void reMap_QKV_FC1_FC2_P4(
+    std::map<std::string, ModelRuntime>& models, 
+    std::vector<uint8_t>& q_weight,
+    std::vector<uint8_t>& k_weight,
+    std::vector<uint8_t>& v_weight,
+    std::vector<uint8_t>& fc1_weight,
+    std::vector<uint8_t>& fc2_weight,
+    std::vector<uint8_t>& p4_weight,
+    std::vector<uint8_t>& q_bias,
+    std::vector<uint8_t>& k_bias,
+    std::vector<uint8_t>& v_bias,
+    std::vector<uint8_t>& fc1_bias,
+    std::vector<uint8_t>& fc2_bias,
+    std::vector<uint8_t>& p4_bias
+) {
+    models["P1_Q_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &q_weight;
+    assert(reMapUserBuffer(models, "P1_Q_reshaped_with_bias", "weights:0"));
+    models["P1_Q_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &q_bias;
+    assert(reMapUserBuffer(models, "P1_Q_reshaped_with_bias", "bias:0"));
+
+    models["P1_K_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &k_weight;
+    assert(reMapUserBuffer(models, "P1_K_reshaped_with_bias", "weights:0"));
+    models["P1_K_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &k_bias;
+    assert(reMapUserBuffer(models, "P1_K_reshaped_with_bias", "bias:0"));
+
+    models["P1_V_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &v_weight;
+    assert(reMapUserBuffer(models, "P1_V_reshaped_with_bias", "weights:0"));
+    models["P1_V_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &v_bias;
+    assert(reMapUserBuffer(models, "P1_V_reshaped_with_bias", "bias:0"));
+
+    models["FC1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &fc1_weight;
+    assert(reMapUserBuffer(models, "FC1_reshaped_with_bias", "weights:0"));
+    models["FC1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &fc1_bias;
+    assert(reMapUserBuffer(models, "FC1_reshaped_with_bias", "bias:0"));
+
+    models["FC2_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &fc2_weight;
+    assert(reMapUserBuffer(models, "FC2_reshaped_with_bias", "weights:0"));
+    models["FC2_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &fc2_bias;
+    assert(reMapUserBuffer(models, "FC2_reshaped_with_bias", "bias:0"));
+
+    models["P4_1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &p4_weight;
+    assert(reMapUserBuffer(models, "P4_1_reshaped_with_bias", "weights:0"));
+    models["P4_1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &p4_bias;
+    assert(reMapUserBuffer(models, "P4_1_reshaped_with_bias", "bias:0"));
+}
 
 
 template <typename T>
@@ -1817,6 +1947,8 @@ void fillZeros(
     std::fill(buff_7.begin(), buff_7.end(), 0);
     std::fill(buff_8.begin(), buff_8.end(), 0);
 }
+
+
 
 
 
