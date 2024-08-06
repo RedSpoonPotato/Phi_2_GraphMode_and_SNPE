@@ -64,10 +64,23 @@ int main(int argc, char** argv) {
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
         otherPaths["layernorm_weight_" + i_str] = "layernorm_weight_" + i_str + ".bin";
+        otherPaths["q_weight_" + i_str] = "q_weight_" + i_str + ".bin";
+        otherPaths["k_weight_" + i_str] = "k_weight_" + i_str + ".bin";
+        otherPaths["v_weight_" + i_str] = "v_weight_" + i_str + ".bin";
+        otherPaths["fc1_weight_" + i_str] = "fc1_weight_" + i_str + ".bin";
+        otherPaths["fc2_weight_" + i_str] = "fc2_weight_" + i_str + ".bin";
+
         otherPaths["layernorm_bias_" + i_str] = "layernorm_bias_" + i_str + ".bin";
+        otherPaths["q_bias_" + i_str] = "q_bias_" + i_str + ".bin";
+        otherPaths["k_bias_" + i_str] = "k_bias_" + i_str + ".bin";
+        otherPaths["v_bias_" + i_str] = "v_bias_" + i_str + ".bin";
+        otherPaths["fc1_bias_" + i_str] = "fc1_bias_" + i_str + ".bin";
+        otherPaths["fc2_bias_" + i_str] = "fc2_bias_" + i_str + ".bin";   
     }
     otherPaths["final_layernorm_weight"]    = "final_layernorm_weight.bin";
     otherPaths["final_layernorm_bias"]      = "final_layernorm_bias.bin";
+    otherPaths["final_lm_head_weight"] = "final_lm_head_weight.bin";
+    otherPaths["final_lm_head_bias"] = "final_lm_head_bias.bin";
     for (auto& pair : otherPaths) {
         pair.second = path + "/data/" + pair.second;
     }
