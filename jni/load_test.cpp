@@ -10,13 +10,13 @@
 
 int main(int argc, char** argv) {
 
-    // assert(argc == 6);
-    // std::string input_txt = "this test does not matter";
-    std::string input_txt = "What is your favorite color?. Mine is red.";
+    // load input text
+    // std::string input_txt = "What is your favorite color?. Mine is red.";
+    std::string input_txt;
+    bool result = readInput(argc, argv, input_txt);
+    assert(result);
+    std::cout << "input text: \"" << input_txt << "\"\n";
 
-    // std::vector<zdl::DlSystem::Runtime_t> runtime_modes;
-    std::map<std::string, RuntimeParams> runtimes;
-    // auto runtime_type = zdl::DlSystem::Runtime_t::DSP;
     auto runtime_type = zdl::DlSystem::Runtime_t::CPU;
 
     // grab max_iterations
@@ -25,65 +25,20 @@ int main(int argc, char** argv) {
     std::cout << "max iterations: " << max_iterations << "\n";
     assert(*end == '\0');
 
-    // grab paths
-    std::string path;
-    path = std::string(argv[2]);
+    // grab decoder_store number
+    uint8_t decoder_cache_size = static_cast<uint8_t>(strtoul(argv[2], &end, 10));
+    std::cout << "decoder_cache_size: " << int(decoder_cache_size) << "\n";
+    assert(*end == '\0');
+    assert(decoder_cache_size <= DECODERS);
 
-    runtimeArgParse(argv, argc, runtimes);
-
+    /* grab paths */
+    auto base_dir = std::string(argv[3]);
+    // parse cmd line
+    std::map<std::string, RuntimeParams> runtimes = runtimeArgParse(argv, argc);
     // setting dlc paths
-    std::set<std::pair<std::string, std::string>> ModelNameAndPaths;
-
-    std::string dlcDir;
-    std::string dlcSuffix;
-    std::string model_name;
-    
-    for (const auto pair : runtimes) {
-        model_name = pair.first;
-        if (pair.second.runtime_type == zdl::DlSystem::Runtime_t::DSP) {
-            dlcDir = path + "/q_dlc/";
-            dlcSuffix = "q_model_";
-        }
-        else {
-            dlcDir = path + "/dlc/";
-            dlcSuffix = "model_";
-        }
-        ModelNameAndPaths.insert({model_name, dlcDir + dlcSuffix + model_name + ".dlc"});
-    }
-
-
-    // setting sin, cos, embedding paths
-    std::map<std::string, std::string> otherPaths;
-    // std::string dataPath = "./data/";
-    otherPaths["sin"] = "sin_cached.bin"; // 32-bit
-    otherPaths["cos"] = "cos_cached.bin"; // 32-bit
-    otherPaths["embedding"] = "embedding.bin"; // 16-bit
-    otherPaths["token_vocab"] = "vocab.json";
-    otherPaths["token_merges"] = "merges.txt";
-    // otherPaths[""] = "./fp16_test/model_split/data/merges.txt";
-    for (size_t i = 0; i < DECODERS; i++) {
-        std::string i_str = std::to_string(i);
-        otherPaths["layernorm_weight_" + i_str] = "layernorm_weight_" + i_str + ".bin";
-        otherPaths["q_weight_" + i_str] = "q_weight_" + i_str + ".bin";
-        otherPaths["k_weight_" + i_str] = "k_weight_" + i_str + ".bin";
-        otherPaths["v_weight_" + i_str] = "v_weight_" + i_str + ".bin";
-        otherPaths["fc1_weight_" + i_str] = "fc1_weight_" + i_str + ".bin";
-        otherPaths["fc2_weight_" + i_str] = "fc2_weight_" + i_str + ".bin";
-
-        otherPaths["layernorm_bias_" + i_str] = "layernorm_bias_" + i_str + ".bin";
-        otherPaths["q_bias_" + i_str] = "q_bias_" + i_str + ".bin";
-        otherPaths["k_bias_" + i_str] = "k_bias_" + i_str + ".bin";
-        otherPaths["v_bias_" + i_str] = "v_bias_" + i_str + ".bin";
-        otherPaths["fc1_bias_" + i_str] = "fc1_bias_" + i_str + ".bin";
-        otherPaths["fc2_bias_" + i_str] = "fc2_bias_" + i_str + ".bin";   
-    }
-    otherPaths["final_layernorm_weight"]    = "final_layernorm_weight.bin";
-    otherPaths["final_layernorm_bias"]      = "final_layernorm_bias.bin";
-    otherPaths["final_lm_head_weight"] = "final_lm_head_weight.bin";
-    otherPaths["final_lm_head_bias"] = "final_lm_head_bias.bin";
-    for (auto& pair : otherPaths) {
-        pair.second = path + "/data/" + pair.second;
-    }
+    std::set<std::pair<std::string, std::string>> ModelNameAndPaths = setDlcPaths(runtimes, base_dir);
+    // set weight, layernorm, and miscellaneous paths
+    std::map<std::string, std::string> otherPaths = setOtherPaths(runtimes, base_dir);
 
     // other params
     int debugReturnCode = 20;
@@ -99,6 +54,7 @@ int main(int argc, char** argv) {
         ModelNameAndPaths, // abs paths
         otherPaths, // abs path of sin, cos, embeddingFIle
         max_iterations, 
+        decoder_cache_size,
         Free_Status::run_and_free, // modded
         debugReturnCode,
         end_token_id,

@@ -1,12 +1,4 @@
-/*
-This is an newer copy of android main where we implement model_dict
-
-This is built for running the phi-2 model with the htp
-    - i.e. splittign the model into native parts
-*/
-
 #include "android_main.h"
-// #include "include/android_main.h"
 #include "tokenizer.hpp"
 #include "embedding.hpp"
 #include "operations.h"
@@ -26,7 +18,8 @@ std::string modelLaunch(
     const std::map<std::string, RuntimeParams>& runtime_params,
     const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths, // abs paths
     const std::map<std::string, std::string>& otherPaths, // abs path of sin, cos, embeddingFIle
-    const uint32_t& max_iterations,
+    const uint32_t max_iterations,
+    const uint8_t decoder_cache_size,
     const Free_Status exitAndFree,
     const int debugReturnCode,
     const uint32_t end_token_id,
@@ -34,6 +27,19 @@ std::string modelLaunch(
 ) {
 
     static bool first_run = true;
+
+    // func();
+
+    // std::vector<std::vector<uint8_t>> x(1);
+    // stall();
+    // x[0].resize(1000000000);
+    // stall();
+    // // x[0].resize(0);
+    // std::vector<uint8_t>().swap(x[0]);
+    // // x[0].clear();
+    // // x[0].shrink_to_fit();
+    // stall();
+    // exit(0);
 
     // change this later when you make multiple calls
     // bool kv_empty = true;
@@ -77,10 +83,6 @@ std::string modelLaunch(
     // layernorm buffers (stored as fp32)
     static auto layernorm_weights   = std::vector<std::vector<float>>(DECODERS);
     static auto layernorm_biases    = std::vector<std::vector<float>>(DECODERS);
-    for (int i = 0; i < DECODERS; i++) { 
-        layernorm_weights[i].resize(HIDDEN_SIZE);
-        layernorm_biases[i].resize(HIDDEN_SIZE);
-    }
 
     static auto final_layernorm_weight  = std::vector<float>(HIDDEN_SIZE);
     static auto final_layernorm_bias    = std::vector<float>(HIDDEN_SIZE);
@@ -88,8 +90,15 @@ std::string modelLaunch(
     const int rotary_emb_dim = 32; // 80 * .4 (self.head_dim * partial_rot_fact)
 
     // NOTE: CHANGE the sizes (4 or 1) to a variable that may be changed to 2 (fp16) if android c++ is capable
-    size_t quant_size = 4; // **NOTE: CHANGE THIS BACK TO 1 WHEN GOING TO ANDROID
-    size_t float_size = 4; // LOOK INTO CHANGING THIS TO SAVE MEMORY (change to 2)
+    size_t quant_size = sizeof(QUANT_TYPE); // **NOTE: CHANGE THIS BACK TO 1 WHEN GOING TO ANDROID
+    size_t float_size = sizeof(UNQUANT_TYPE); // LOOK INTO CHANGING THIS TO SAVE MEMORY (change to 2)
+    size_t final_lm_size;
+    #ifdef ENABLE_FP16
+        final_lm_size = 2;
+    #else
+        final_lm_size = 4;
+    #endif
+
     static auto buff_1      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size, 0);
     // static auto buff_2      =   std::vector<uint8_t>(MAX_SEQ_LEN * INTERMEDIATE_SIZE * float_size);
     static auto buff_3      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4, 0);
@@ -97,7 +106,7 @@ std::string modelLaunch(
     static auto buff_5      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * quant_size, 0);
     static auto buff_6      =   std::vector<uint8_t>(MAX_SEQ_LEN * INTERMEDIATE_SIZE * quant_size, 0);
     static auto buff_7      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * 4, 0);
-    static auto buff_8      =   std::vector<uint8_t>(rotary_emb_dim *  MAX_SEQ_LEN * HIDDEN_SIZE * quant_size, 0);
+    static auto buff_8      =   std::vector<uint8_t>(rotary_emb_dim *  MAX_SEQ_LEN * HIDDEN_SIZE * final_lm_size, 0);
     // static auto buff_9      =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size);
     // static auto buff_10     =   std::vector<uint8_t>(MAX_SEQ_LEN * HIDDEN_SIZE * float_size);
 
@@ -123,28 +132,21 @@ std::string modelLaunch(
 
     // extra memory allocation 
     std::cout << "Allocating memory\n";
-    size_t fp16size = 2;
 
-    static auto q_weights   = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto k_weights   = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto v_weights   = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto fc1_weights = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto fc2_weights = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto p4_weights = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto q_biases    = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto k_biases    = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto v_biases    = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto fc1_biases  = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto fc2_biases  = std::vector<std::vector<uint8_t>>(DECODERS);
-    static auto p4_biases = std::vector<std::vector<uint8_t>>(DECODERS);
-
-    static auto final_lm_head_weight = std::vector<uint8_t>(HIDDEN_SIZE * VOCAB_SIZE * fp16size, 0);
-    static auto final_lm_head_bias   = std::vector<uint8_t>(VOCAB_SIZE * fp16size, 0);
+    static auto q_weights   = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto k_weights   = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto v_weights   = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto fc1_weights = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto fc2_weights = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto p4_weights = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto q_biases    = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto k_biases    = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto v_biases    = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto fc1_biases  = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto fc2_biases  = std::vector<std::vector<uint8_t>>(decoder_cache_size);
+    static auto p4_biases   = std::vector<std::vector<uint8_t>>(decoder_cache_size);
 
     // buffers
-    static auto weight_buff = std::vector<uint8_t>(HIDDEN_SIZE * INTERMEDIATE_SIZE);
-    static auto bias_buff   = std::vector<uint8_t>(INTERMEDIATE_SIZE);
-
 
     std::cout << "Finished Allocating memory\n";
 
@@ -152,37 +154,26 @@ std::string modelLaunch(
     auto query_shape         = std::vector<size_t>();
     auto key_shape           = std::vector<size_t>();
     auto value_shape         = std::vector<size_t>();
-    auto sin_shape           = std::vector<size_t>();
-    auto cos_shape           = std::vector<size_t>();
-    auto query_rot_buff_dims = std::vector<size_t>();
-    auto query_pass_buff_dims = std::vector<size_t>();
-    auto key_rot_buff_dims   = std::vector<size_t>();
-    auto key_pass_buff_dims  = std::vector<size_t>();
+    // auto sin_shape           = std::vector<size_t>();
+    // auto cos_shape           = std::vector<size_t>();
+    // auto query_rot_buff_dims = std::vector<size_t>();
+    // auto query_pass_buff_dims = std::vector<size_t>();
+    // auto key_rot_buff_dims   = std::vector<size_t>();
+    // auto key_pass_buff_dims  = std::vector<size_t>();
     auto key_cache_shape     = std::vector<std::vector<size_t>>(DECODERS);
     auto value_cache_shape   = std::vector<std::vector<size_t>>(DECODERS);
 
     // not for DynamicTruncation()
     auto residual_shape         = std::vector<size_t>();
+    auto fc1_out_shape         = std::vector<size_t>();
     auto attn_weights_shape     = std::vector<size_t>();
     auto attn_output_shape      = std::vector<size_t>();
     auto decoder_output_shape   = std::vector<size_t>();
     auto mask_shape             = std::vector<size_t>();
 
-    {
-        // exit(0);
-        // remove later
-            // size_t dum = 0;
-            // int* c = (int*)malloc(sizeof(int) * 500000000);
-            // for (size_t i = 0; i < 100000000; i++) {
-            //     dum++;
-            // }
-            // std::cout << "dum: " << dum << "\n";
-            // free(c);
-            // exit(0);
-    }
-
     // quantization params
-    std::vector<std::map<std::string, quantParams>> decoderQuantParams = quantizationParams();
+    const static std::vector<std::map<std::string, quantParams>> decoderQuantParams 
+        = parseFile(otherPaths.at("decoder_params"));
 
     std::vector<int> position_ids;
 
@@ -191,6 +182,7 @@ std::string modelLaunch(
     #endif
 
     bool quantize = (quant_size == 1);
+    bool enable_fp16 = (quant_size == 2);
     static bool intialize = true;
 
     // should only run once
@@ -237,8 +229,8 @@ std::string modelLaunch(
             std::cout << "\t\t\t--CHECKPOINT G1--\n";
         #endif
         // put these back in later
-        loadAndQuantize(sin_cached, otherPaths.at("sin"), quantize);
-        loadAndQuantize(cos_cached, otherPaths.at("cos"), quantize);
+        loadAndQuantize(sin_cached, otherPaths.at("sin"), quantize, enable_fp16);
+        loadAndQuantize(cos_cached, otherPaths.at("cos"), quantize, enable_fp16);
 
         #ifdef DEBUG
             std::cout << "\t\t\t--CHECKPOINT G2--\n";
@@ -251,24 +243,23 @@ std::string modelLaunch(
         for (auto& vec : v_cache) { vec.resize(MAX_SEQ_LEN * HIDDEN_SIZE * quant_size); }
 
         // load weights and biases
-        // loadDecoderWeightsAndBiases(
-        //     q_weights,
-        //     k_weights,
-        //     v_weights,
-        //     fc1_weights,
-        //     fc2_weights,
-        //     p4_weights,
-        //     q_biases,
-        //     k_biases,
-        //     v_biases,
-        //     fc1_biases,
-        //     fc2_biases,
-        //     p4_biases,
-        //     otherPaths,
-        //     quant_size
-        // );
-        // loadFileAndDontResize(final_lm_head_weight, otherPaths.at("final_lm_head_weight"));
-        // loadFileAndDontResize(final_lm_head_bias, otherPaths.at("final_lm_head_bias"));
+        loadDecoderWeightsAndBiases(
+            q_weights,
+            k_weights,
+            v_weights,
+            fc1_weights,
+            fc2_weights,
+            p4_weights,
+            q_biases,
+            k_biases,
+            v_biases,
+            fc1_biases,
+            fc2_biases,
+            p4_biases,
+            otherPaths,
+            quant_size,
+            decoder_cache_size
+        );
 
         zdl::SNPE::SNPEFactory::terminateLogging();
     }
@@ -301,195 +292,7 @@ std::string modelLaunch(
     size_t tot_seq_len  = tot_token_seq.size();
     size_t seq_len      = token_seq.size();
 
-    /* NEED TO IMPLEMENT INITIAL RESHAPING */
-    std::cout << "calling reshapeStuff\n";
-
-    // reshapeModels(models, "P2_reshaped",
-    // {
-    //     {"query_states:0", {32, 1, 80}},
-    //     {"key_states:0", {32, 13, 80}}
-    // }, sizeof(UNQUANT_TYPE));
-    // execute(models, "P2_reshaped", quantize);
-
-    // reshapeModels(models, "P3_reshaped",
-    // {
-    //     {"attn_weights:0", {32, 1, 13}},
-    //     {"value_states:0", {32, 13, 80}}
-    // }, sizeof(QUANT_TYPE));
-    // execute(models, "P3_reshaped", false);
-
-    
-    // reshapeModels(models, "P3_not_first_reshaped",
-    // {
-    //     {"attn_weights:0", {32, seq_len, seq_len}},
-    //     {"value_states:0", {32, seq_len, 80}}
-    // }, sizeof(QUANT_TYPE));
-    // std::cout << "running\n";
-    // execute(models, "P3_not_first_reshaped", false);
-    
-    // reshapeModels(models, "P3_first_buffered",
-    // {
-    //     {"attn_weights:0", {32, 2, seq_len}},
-    //     {"value_states:0", {32, seq_len, 80}}
-    // }, sizeof(QUANT_TYPE));
-    // std::cout << "running\n";
-    // execute(models, "P3_first_buffered", false);
-
-    std::cout << "done\n";
-    // exit(0);
-
-            {
-            // exit(0);
-            // remove later
-                // size_t dum = 0;
-                // int* c = (int*)malloc(sizeof(int) * 500000000);
-                // for (size_t i = 0; i < 100000000; i++) {
-                //     dum++;
-                // }
-                // std::cout << "dum: " << dum << "\n";
-                // free(c);
-                // exit(0);
-        }
-
     std::cout << "\n\n CALLING reshapeInitial\n\n";
-    {
-            // remove
-            // exit(0);
-            CLOCK_INIT
-            std::cout << "resetting\n";
-
-            // auto it = models->find("P1_Q_reshaped_layer_1");
-            // assert(it != models->end());
-            // models->erase(it);
-
-            // models["P1_Q_reshaped_layer_1"].container.reset();
-
-            // std::string path_name = "./fp16_test/model_split/dlc/model_P1_Q_reshaped_layer_0.dlc";
-            // models["Final_LM_Head"].container.reset();
-            // models["Final_LM_Head"].container = loadContainerFromFile(path_name);
-
-            stall();
-            size_t seq_len = 15;
-            size_t tot_seq_len = 15;
-            reshapeModels(models, "P2_reshaped",
-            {
-                {"query_states:0", {32, seq_len, 80}},
-                {"key_states:0", {32, 80, tot_seq_len}}
-            });
-            reshapeModels(models, "P3_reshaped",
-            {
-                {"attn_weights:0", {32, seq_len, tot_seq_len}},
-                {"value_states:0", {32, tot_seq_len, 80}}
-            });
-            reshapeModels(models, "P1_Q_reshaped_with_bias",
-            {
-                {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
-                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
-                {"bias:0", {1, HIDDEN_SIZE}}
-            });
-            reshapeModels(models, "FC1_reshaped_with_bias",
-            {
-                {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
-                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
-                {"bias:0", {1, HIDDEN_SIZE}}
-            });
-            reshapeModels(models, "P4_2_reshaped",
-            {
-                {"p4_1_out:0", {2, HIDDEN_SIZE}},
-                {"feed_forward_hidden_states:0", {2, HIDDEN_SIZE}},
-                {"residual:0", {2, HIDDEN_SIZE}}
-            });
-            stall();
-            // exit(0);
-            execute(models, "P3_reshaped", false);
-            stall();
-            execute(models, "P2_reshaped", false);
-            execute(models, "P1_Q_reshaped_with_bias", false);
-            stall();
-            exit(0);
-
-            stall();
-
-            std::cout << "reshaping\n";
-
-            /// 
-            // size_t seq_len = 20;
-            // size_t tot_seq_len = 20;
-            // exit(0);
-
-            reshapeModels(models, "P1_QKV_reshaped_no_bias",
-            {
-                {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
-                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}}
-            });
-            reshapeModels(models, "P2_reshaped",
-            {
-                {"query_states:0", {32, seq_len, 80}},
-                {"key_states:0", {32, 80, tot_seq_len}}
-            });
-            reshapeModels(models, "P3_reshaped",
-                {
-                    {"attn_weights:0", {32, seq_len, tot_seq_len}},
-                    {"value_states:0", {32, tot_seq_len, 80}}
-                });
-            reshapeModels(models, "FC1_reshaped_no_bias",
-            {
-                {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
-                {"weights:0", {1, HIDDEN_SIZE, INTERMEDIATE_SIZE}}
-            });
-            reshapeModels(models, "FC2_reshaped_no_bias",
-            {
-                {"gelu_out:0", {1, seq_len, INTERMEDIATE_SIZE}},
-                {"weights:0", {1, INTERMEDIATE_SIZE, HIDDEN_SIZE}}
-            });
-
-            reshapeModels(models, "FinalLMHead_reshaped_no_bias",
-            {
-                {"final_input:0", {1, seq_len, HIDDEN_SIZE}},
-                {"weights:0", {1, HIDDEN_SIZE, VOCAB_SIZE}}
-            });
-            stall();
-
-
-            for (size_t i = 0; i < 1; i++) {
-                execute(models, "P1_QKV_reshaped_no_bias", false);
-                execute(models, "P2_reshaped", false);
-                execute(models, "P3_reshaped", false);
-                execute(models, "FC1_reshaped_no_bias", false);
-                execute(models, "FC2_reshaped_no_bias", false);
-            }
-            
-            execute(models, "FinalLMHead_reshaped_no_bias", false);
-            // execute(models, "Final_LM_Head", false);
-
-            stall();
-
-            execute(models, "FinalLMHead_reshaped_no_bias", false);
-            // execute(models, "Final_LM_Head", false);
-
-            stall();
-
-
-            // free the weight buffer
-            models["FinalLMHead_reshaped_no_bias"].snpe.reset();
-
-            stall();
-
-            reshapeModels(models, "Final_LM_Head",
-            {
-                {"final_input:0", {1, HIDDEN_SIZE}},
-            });
-
-            stall();
-
-            execute(models, "Final_LM_Head", false);
-
-            stall();
-
-            exit(0);
-    }
-
-    // temp
 
     reshapeInitial(models, seq_len, tot_seq_len, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE)); // restore
     // reshapeInitial(models, seq_len+1, tot_seq_len+1, sizeof(QUANT_TYPE), sizeof(UNQUANT_TYPE)); // remove later
@@ -512,9 +315,9 @@ std::string modelLaunch(
         // copy convert 16 bit data to 32 bit inside of the buffer
         assert(float_size == 4);
         fp16_to_fp32(
-            (ushort*)buff_8.data(), // using an intermediate buffer
+            (FP16*)buff_8.data(), // using an intermediate buffer
             (float*)buff_1.data(), 
-            {(uint32_t)seq_len, HIDDEN_SIZE}
+            {seq_len, HIDDEN_SIZE}
         );
 
         #ifdef DEBUG
@@ -535,25 +338,7 @@ std::string modelLaunch(
             // (float*)buff_8.data() // intermediate buffer
         );
 
-        // {
-        //     // remove later
-        //     printTensorColumn(
-        //         "attention_mask columns",
-        //         (float*)(models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data(),
-        //         {seq_len, seq_len},
-        //         2
-        //     );
-        // }
-
-        #ifdef DEBUG
-            // printN(
-            //     "prepared Mask", 
-            //     (float*)((models)["P2_1_first_buffered"].applicationInputBuffers["attention_mask:0"]->data()),
-            //     N_PRINT,
-            //     false
-            // );
-            std::cout << "executing model\n";
-        #endif
+        std::cout << "executing model\n";
 
         // call model
         for (int i = 0; i < DECODERS; i++) {
@@ -580,56 +365,86 @@ std::string modelLaunch(
             if (quantize) {
                 quantize_1(models, decoderQuantParams, seq_len, i);
             }
-            
-            reMap_QKV_FC1_FC2_P4(
+            else if (enable_fp16) {
+                fp16_cast_1(models, residual_shape);
+            }
+
+
+            // #ifdef DEBUG
+            //     stall();
+            // #endif
+
+            load_and_reMap_QKV_FC1_FC2_P4(
                 models,
-                q_weights[i],
-                k_weights[i],
-                v_weights[i],
-                fc1_weights[i],
-                fc2_weights[i],
-                p4_weights[i],
-                q_biases[i],
-                k_biases[i],
-                v_biases[i],
-                fc1_biases[i],
-                fc2_biases[i],
-                p4_biases[i]
+                decoder_cache_size,
+                i,
+                iteration_num,
+                otherPaths,
+                quant_size,
+                q_weights,
+                k_weights,
+                v_weights,
+                fc1_weights,
+                fc2_weights,
+                p4_weights,
+                q_biases,
+                k_biases,
+                v_biases,
+                fc1_biases,
+                fc2_biases,
+                p4_biases
             );
 
-            execute(models, "P1_Q_reshaped_with_bias", quantize);
-            execute(models, "P1_K_reshaped_with_bias", quantize);
-            execute(models, "P1_V_reshaped_with_bias", quantize);
-            execute(models, "FC1_reshaped_with_bias", quantize);
+            // #ifdef DEBUG
+            //     stall();
+            // #endif
+
+            execute(models, "P1_Q_reshaped_with_bias", quantize, enable_fp16);
+            execute(models, "P1_K_reshaped_with_bias", quantize, enable_fp16);
+            execute(models, "P1_V_reshaped_with_bias", quantize, enable_fp16);
+            execute(models, "FC1_reshaped_with_bias", quantize, enable_fp16);
+
+
+            fc1_out_shape = {1, seq_len, INTERMEDIATE_SIZE};
+
+            #ifdef ENABLE_FP16
+            assert(findNanAndInf((float16_t*)buff_3.data(), residual_shape, "fp16 before conversion") == 0);
+            assert(findNanAndInf((float16_t*)buff_4.data(), residual_shape, "fp16 before conversion") == 0);
+            assert(findNanAndInf((float16_t*)buff_5.data(), residual_shape, "fp16 before conversion") == 0);
+            assert(findNanAndInf((float16_t*)buff_6.data(), fc1_out_shape, "fp16 before conversion") == 0);
+            #endif
 
             if (quantize) {
                 // need to dequantize (not sure if fixed or unfixed)
                 unquantize_1(models, decoderQuantParams, buff_8, seq_len, i);
             }
+            else if (enable_fp16) {
+                fp32_cast_1(models, fc1_out_shape, buff_8);
+            }
             else {
                 // this a test for seeing if gelu works in memory.
                 // You can remove this block and replace it with letting gelu input point to buff_6 if unquantized instead
-                copyTensor((UNQUANT_TYPE*)buff_6.data(), (UNQUANT_TYPE*)buff_8.data(), {seq_len, INTERMEDIATE_SIZE});
+                copyTensor((UNQUANT_TYPE*)buff_6.data(), (UNQUANT_TYPE*)buff_8.data(), fc1_out_shape);
             }
 
             printTensor(
                 "gelu in (buff_6 before)",
-                (float*)buff_6.data(),
-                {seq_len, INTERMEDIATE_SIZE}
+                (UNQUANT_TYPE*)(models)["FC2_reshaped_with_bias"].applicationInputBuffers["gelu_out:0"]->data(),
+                fc1_out_shape
             );
             
             // in memory
             NewGELU(
                 (UNQUANT_TYPE*)(models)["FC2_reshaped_with_bias"].applicationInputBuffers["gelu_out:0"]->data(),
                 (UNQUANT_TYPE*)(models)["FC2_reshaped_with_bias"].applicationInputBuffers["gelu_out:0"]->data(),
-                {seq_len, INTERMEDIATE_SIZE}
+                fc1_out_shape
             );
 
             {
                 printTensor(
                     "gelu out (buff_8 after)",
-                    (float*)buff_8.data(),
-                    {seq_len, INTERMEDIATE_SIZE}
+                    (UNQUANT_TYPE*)(models)["FC2_reshaped_with_bias"].applicationInputBuffers["gelu_out:0"]->data(),
+                    fc1_out_shape
                 );
             }
 
@@ -638,31 +453,14 @@ std::string modelLaunch(
                 // need to quantize (not sure if fixed or unfixed)
                 quantize_2(models, decoderQuantParams, buff_8, seq_len, i);
             }
+            else if (enable_fp16) {
+                fp16_cast_2(buff_8, fc1_out_shape);
+            }
 
-            execute(models, "FC2_reshaped_with_bias", quantize);
+            execute(models, "FC2_reshaped_with_bias", quantize, enable_fp16);
 
             // implement processing
             // NEED TO SET THE SHAPES (MAKE THEM ALL 4D)
-            
-            {
-                // remove later
-                // printTensorColumn(
-                //     "\nquery_states columns before DynTruncation()",
-                //     (float*)(models)["P2_1_first_buffered"].applicationInputBuffers["query_states:0"]->data(),
-                //     {32, MAX_SEQ_LEN, 80}
-                // );
-                // printTensorColumn(
-                //     "\nkey_states columns before DynTruncation()",
-                //     (float*)(models)["P2_1_first_buffered"].applicationInputBuffers["key_states:0"]->data(),
-                //     {32, MAX_SEQ_LEN, 80}
-                // );
-
-                // printTensorColumn(
-                //         "\nvalue_states columns before DynTruncation",
-                //         (float*)(models)["P3_first_buffered"].applicationInputBuffers["value_states:0"]->data(),
-                //         {32, MAX_SEQ_LEN, 80}
-                // );
-            }
 
             std::cout << "\t\t\tCalling DynamicTruncationAndConcatentation() #" << i_str << "\n";
             // insure buff_8 is not being used at this point
@@ -685,25 +483,39 @@ std::string modelLaunch(
                 query_shape, // set
                 key_shape, // set
                 value_shape, // set
-                sin_shape, // wil be set
-                cos_shape, // will be set
+                // sin_shape, // wil be set
+                // cos_shape, // will be set
                 key_cache_shape[i], // intially it should not be set
                 value_cache_shape[i], // intially it should not be set
-                query_rot_buff_dims, // will be set
-                query_pass_buff_dims, // will be set
-                key_rot_buff_dims, // will be set
-                key_pass_buff_dims, // will be set
+                // query_rot_buff_dims, // will be set
+                // query_pass_buff_dims, // will be set
+                // key_rot_buff_dims, // will be set
+                // key_pass_buff_dims, // will be set
                 rotary_emb_dim, // set
                 position_ids // set
             );
 
             if (quantize) {
-                unquantize_2(models, decoderQuantParams, buff_8, seq_len, i);
+                unquantize_2(models, decoderQuantParams, buff_8, seq_len, i, query_shape, key_shape);
+            }
+            else if (enable_fp16) {
+                fp32_cast_2(models, buff_8, query_shape, key_shape);
             }
 
             std::cout << "\t\t\tFinished DynamicTruncationAndConcatentation() #" << i_str << "\n";
 
-            execute(models, "P2_reshaped", false);
+            // restore
+            execute(models, "P2_reshaped", false, false);
+            // matmul_Nd_32f(
+            //     (float*)models["P2_reshaped"].applicationInputBuffers["query_states:0"]->data(),
+            //     (float*)models["P2_reshaped"].applicationInputBuffers["key_states:0"]->data(),
+            //     (float*)models["P2_reshaped"].applicationOutputBuffers["attn_weights:0"]->data(),
+            //     {32, seq_len, 80},
+            //     {32, 80, tot_seq_len}
+            // );
+            // exit(0);
+
+            // #if de
 
             attn_weights_shape = {1, 32, seq_len, tot_seq_len};
 
@@ -716,23 +528,30 @@ std::string modelLaunch(
                 mask_ptr,
                 quantize,
                 float_size,
-                i
+                i,
+                enable_fp16
             );
 
-            execute(models, "P3_reshaped", quantize);
+            execute(models, "P3_reshaped", quantize, enable_fp16);
 
             attn_output_shape = {1, seq_len, HIDDEN_SIZE};
 
-            execute(models, "P4_1_reshaped_with_bias", quantize);
+                // remove later
+                printTensor("P3_reshaped output", (QUANT_TYPE*)buff_3.data(), attn_output_shape);
+
+            execute(models, "P4_1_reshaped_with_bias", quantize, enable_fp16);
 
             if (quantize) {
-                unquantize_4(models, decoderQuantParams, seq_len, i);
+                unquantize_3(models, decoderQuantParams, seq_len, i);
+            }
+            else if (enable_fp16) {
+                fp32_cast_3(models, residual_shape);
             }
             else {
                 copy_FF_Hidden_States(models, i_str, seq_len);
             }
 
-            execute(models, "P4_2_reshaped", false);
+            execute(models, "P4_2_reshaped", false, false);
 
             decoder_output_shape = {1, seq_len, HIDDEN_SIZE};
 
@@ -745,46 +564,47 @@ std::string modelLaunch(
             }
         }
 
-        // remove later
-        // exit(0);
-
-        // write kv cache from out to in
-        #ifdef DEBUG
-            std::cout << "calling copyKV\n";
-        #endif
-
-        // need to add rest of model (outside of decoder layers)
-        if (quantize) {
-            // qunatize buff_3 in memory
-        }
-        // check to make sure this works in memory
         layernorm_Nd_32f(
-            (float*)(models)["P4_2_reshaped"].applicationInputBuffers["residual:0"]->data(),
+            (float*)(models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"]->data(),
             final_layernorm_weight.data(),
             final_layernorm_bias.data(),
-            (float*)(models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"]->data(),
-            residual_shape,
+            (float*)(models)["Final_LM_Head"].applicationInputBuffers["final_input:0"]->data(),
+            decoder_output_shape,
             1e-5
         );
-        
-        if (iteration_num == 0) {
-            execute(models, "Final_LM_Head", quantize);
+
+        printTensor("Final Layernorm", (float*)buff_3.data(), decoder_output_shape);
+        // printTensor("Final Layernorm Weight", (float*)final_layernorm_weight.data(), {1, 2560});
+        // printTensor("Final Layernorm Bias", (float*)final_layernorm_bias.data(), {1, 2560});
+
+        // need to implement 32-bit to 16bit quantization in memory
+        if (quantize || enable_fp16) {
+            fp16_cast_4(models, decoder_output_shape);
         }
-        else {
-            execute(models, "FinalLMHead_reshaped_no_bias", quantize);
-        }
+
+        // remove later
+        // std::fill(buff_8.begin(), buff_8.end(), 0);
+
+        execute(models, "Final_LM_Head", false, false);
+
+        // remove later
+        // printNumElem(buff_8);
+        // printTensor("Final Layernorm output 8 bit", buff_8.data(), {seq_len, 51200});
+        // printTensor("Final Layernorm output 16 bit", (ushort*)buff_8.data(), {seq_len, 51200});
 
         // grab next token
-        // the line below is old, FIX IT
-        next_token = Argmax(
-            (VOCAB_SIZE * (seq_len-1)) + (QUANT_TYPE*)(models)["FinalLMHead_reshaped_no_bias"].applicationOutputBuffers["final_output:0"]->data(),
-            VOCAB_SIZE
-        );
-
-        #ifdef DEBUG
-            std::cout << "next token grabbed: " << next_token << "\n";
-            std::cout << "token translated: " << tokenizer_ptr->decode({next_token}) << "\n";
-        #endif
+        if (quant_size == 4) {
+            next_token = Argmax(
+                (VOCAB_SIZE * (seq_len-1)) + (QUANT_TYPE*)(models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"]->data(),
+                VOCAB_SIZE
+            );
+        }
+        else {
+            next_token = fp16Argmax(
+                (VOCAB_SIZE * (seq_len-1)) + (FP16*)(models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"]->data(),
+                VOCAB_SIZE
+            );
+        }
 
         // insert token 
         tot_token_seq.push_back(next_token);
@@ -795,12 +615,15 @@ std::string modelLaunch(
 
         position_ids = {(int)tot_seq_len - 1};
 
+        #ifdef DEBUG
+            std::cout << "next token grabbed: " << next_token << "\n";
+            std::cout << "token translated: " << tokenizer_ptr->decode({next_token}) << "\n";
+            std::cout << "tot_seq translated: " << tokenizer_ptr->decode({next_token}) << "\n";
+        #endif
+
         if (use_end_token_id && next_token == end_token_id) {
             break; 
         }
-
-        // reshape
-        // reshape stuff for the next run
 
         std::cout << "\t\t\tTOT_SEQ_LEN: " << tot_seq_len << "\n";
         // exit(0);
@@ -836,11 +659,13 @@ std::string modelLaunch(
             // path << outPath;
             // SaveUserBuffer(path.str(), (models)[0].applicationOutputBuffers.at("matmul_out:0"));
 
+        // NEED TO RESIZE THE VECTOP BUFFERS TO SAVE ON SPACE
+
         #endif
         #ifdef DEBUG
             std::cout << "freeing...\n";
         #endif
-        freeModels(&models);
+        freeModels(models);
         delete tokenizer_ptr;
         #ifdef DEBUG
             std::cout << "done freeing\n";

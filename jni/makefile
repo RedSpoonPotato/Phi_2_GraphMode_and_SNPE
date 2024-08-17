@@ -6,6 +6,11 @@
 CXXFLAGS += -std=c++11 -fPIC -march=x86-64 -g
 # CXXFLAGS += -std=c++20 -fPIC -march=x86-64 -g
 
+# setting source code macros
+CXXFLAGS += -DDATASIZE=4
+CXXFLAGS += -DQUANT_TYPE=float
+CXXFLAGS += -DUNQUANT_TYPE=float
+CXXFLAGS += -DDEBUG
 
 # Include paths
 INCLUDES += -I ./

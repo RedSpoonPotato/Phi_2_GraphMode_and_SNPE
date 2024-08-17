@@ -28,6 +28,20 @@ LOCAL_MODULE := libmain
 LOCAL_SRC_FILES := android_main.cpp CheckRuntime.cpp LoadContainer.cpp LoadUDOPackage.cpp LoadInputTensor.cpp SetBuilderOptions.cpp Util.cpp NV21Load.cpp CreateUserBuffer.cpp PreprocessInput.cpp SaveOutputTensor.cpp CreateGLBuffer.cpp CreateGLContext.cpp
 LOCAL_EXPORT_C_INCLUDES += $(LOCAL_PATH)/include
 LOCAL_CFLAGS := -DENABLE_GL_BUFFER
+LOCAL_CFLAGS += -march=armv8.2-a+fp16
+# LOCAL_CFLAGS += -DDATASIZE=1
+LOCAL_CFLAGS += -DQUANT_TYPE=ushort
+LOCAL_CFLAGS += -DUNQUANT_TYPE=float
+
+LOCAL_CFLAGS += -DDO_MATH
+LOCAL_CFLAGS += -DFIX_MATH
+
+LOCAL_CFLAGS += -UNDEBUG # remove later
+LOCAL_CFLAGS += -DDEBUG # remove later
+
+# LOCAL_CFLAGS += -DQUANTIZE
+LOCAL_CFLAGS += -DENABLE_FP16
+LOCAL_ARM_NEON := true
 LOCAL_SHARED_LIBRARIES := libSNPE libboost_regex libboost_system libboost_filesystem libboost_atomic
 LOCAL_LDLIBS     := -lGLESv2 -lEGL -llog
 include $(BUILD_SHARED_LIBRARY)
@@ -67,6 +81,22 @@ LOCAL_MODULE := load_test
 LOCAL_SRC_FILES := $(LOCAL_MODULE).cpp
 LOCAL_EXPORT_C_INCLUDES += $(LOCAL_PATH)/include
 LOCAL_CFLAGS := -DENABLE_GL_BUFFER
+LOCAL_CFLAGS += -march=armv8.2-a+fp16
+# LOCAL_CFLAGS += -DDATASIZE=1
+LOCAL_CFLAGS += -DQUANT_TYPE=ushort
+LOCAL_CFLAGS += -DUNQUANT_TYPE=float
+# LOCAL_CFLAGS += -DQUANTIZE
+
+LOCAL_CFLAGS += -UNDEBUG # remove later
+LOCAL_CFLAGS += -DDEBUG # remove later
+
+LOCAL_CFLAGS += -DDO_MATH
+LOCAL_CFLAGS += -DFIX_MATH
+
+
+
+LOCAL_CFLAGS += -DENABLE_FP16
+LOCAL_ARM_NEON := true
 LOCAL_SHARED_LIBRARIES := libmain libSNPE libboost_regex libboost_system libboost_filesystem libboost_atomic
 LOCAL_LDLIBS     := -lGLESv2 -lEGL -llog
 include $(BUILD_EXECUTABLE)
