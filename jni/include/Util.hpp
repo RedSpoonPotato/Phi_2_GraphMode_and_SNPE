@@ -30,13 +30,18 @@ template <typename Container> Container& split(Container& result, const typename
   return result;
 }
 
+// struct quantParams {
+//    unsigned char stepEquivalentTo0;
+//    float quantizedStepSize;
+//    quantParams(unsigned char stepEquivalentTo0, float quantizedStepSize) {
+//       this->stepEquivalentTo0 = stepEquivalentTo0;
+//       this->quantizedStepSize = quantizedStepSize;
+//    }
+// };
+
 struct quantParams {
    unsigned char stepEquivalentTo0;
    float quantizedStepSize;
-   quantParams(unsigned char stepEquivalentTo0, float quantizedStepSize) {
-      this->stepEquivalentTo0 = stepEquivalentTo0;
-      this->quantizedStepSize = quantizedStepSize;
-   }
 };
 
 size_t calcSizeFromDims(const zdl::DlSystem::Dimension *dims, size_t rank, size_t elementSize);

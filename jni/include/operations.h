@@ -8,6 +8,34 @@
 #include <cmath>
 #include "main_macros.h"
 
+// #include <cfloat>
+// #include <cstdint>
+
+#ifdef ENABLE_FP16
+    #include <arm_neon.h>
+#endif
+
+// comment out later
+void func()
+{
+
+    // float16_t a = 1.0f;  // Duplicate 1.0f across the vector
+    // float16_t b = 2.0f;  // Duplicate 2.0f across the vector
+    // float16_t c = a + b;    // Perform FP16 addition
+
+    // uint32_t x = 6;
+    // float* y = (float*)&x;
+    // std::cout << "y: " << *y << "\n";
+
+    // // float16_t c = vadd_f16(a, b);    // Perform FP16 addition
+    // std::cout << "size of fp16: " << sizeof(c) << "\n";
+    // std::cout << "c: " << c << "\n";
+    // unsigned short z = 16;
+    // float16_t* x1 = (float16_t*)&z;
+    // std::cout << "x1 casted as fp16: " << *x1 << "\n";
+    // exit(0);
+}
+
 typedef unsigned short ushort;
 typedef unsigned int uint;
 uint as_uint(const float x) {
@@ -22,29 +50,28 @@ float half_to_float(const ushort x) { // IEEE-754 16-bit floating-point format (
     const uint v = as_uint((float)m)>>23; // evil log2 bit hack to count leading zeros in denormalized format
     return as_float((x&0x8000)<<16 | (e!=0)*((e+112)<<23|m) | ((e==0)&(m!=0))*((v-37)<<23|((m<<(150-v))&0x007FE000))); // sign : normalized : denormalized
 }
-ushort float_to_half(const float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
+ushort float_to_half(float x) { // IEEE-754 16-bit floating-point format (without infinity): 1-5-10, exp-15, +-131008.0, +-6.1035156E-5, +-5.9604645E-8, 3.311 digits
     const uint b = as_uint(x)+0x00001000; // round-to-nearest-even: add last bit after truncated mantissa
     const uint e = (b&0x7F800000)>>23; // exponent
     const uint m = b&0x007FFFFF; // mantissa; in line below: 0x007FF000 = 0x00800000-0x00001000 = decimal indicator flag - initial rounding
     return (b&0x80000000)>>16 | (e>112)*((((e-112)<<10)&0x7C00)|m>>13) | ((e<113)&(e>101))*((((0x007FF000+m)>>(125-e))+1)>>1) | (e>143)*0x7FFF; // sign : normalized : denormalized : saturate
 }
 
-void fp16_to_fp32(ushort* in, float* out, const std::vector<uint32_t>& dims) {
-    assert((void*)in != (void*)out);
-    size_t num_elem = dims.end()[-1];
-    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
-    for (size_t i = 0; i < num_elem; i++) {
-        out[i] = half_to_float(in[i]);
-    }
-}
-void fp32_to_fp16(float* in, ushort* out, const std::vector<uint32_t>& dims) {
-    assert((void*)in != (void*)out);
-    size_t num_elem = dims.end()[-1];
-    for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
-    for (size_t i = 0; i < num_elem; i++) {
-        out[i] = float_to_half(in[i]);
-    }
-}
+// void fp16_to_fp32(ushort* in, float* out, const std::vector<uint32_t> dims) {
+//     assert((void*)in != (void*)out);
+//     size_t num_elem = dims.end()[-1];
+//     for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
+//     for (size_t i = 0; i < num_elem; i++) {
+//         out[i] = half_to_float(in[i]);
+//     }
+// }
+// void fp32_to_fp16(float* in, ushort* out, const std::vector<uint32_t> dims) {
+//     size_t num_elem = dims.end()[-1];
+//     for (int i = 0; i < dims.size()-1; i++) { num_elem *= dims[i]; }
+//     for (size_t i = 0; i < num_elem; i++) {
+//         out[i] = float_to_half(in[i]);
+//     }
+// }
 
 size_t reduceDims(const std::vector<size_t>& shape, int numDims = -1) {
     if (numDims == 0) {
@@ -66,12 +93,126 @@ size_t reduceDims(const std::vector<size_t>& shape, int numDims = -1) {
 }
 
 template <typename T>
-void printN(const std::string& str, const T* vec, const size_t N, bool quantize) {
+size_t findNaN(T* tensor, const std::vector<size_t>& shape, std::string name="blank" ) {
+    size_t totalElements = reduceDims(shape);
+    size_t count = 0;
+    for (size_t i = 0; i < totalElements; ++i) {
+        if (std::isnan(static_cast<float>(tensor[i]))) {
+            ++count;
+            #ifdef FIX_MATH
+                if (std::signbit(static_cast<float>(tensor[i]))) {
+                    if (sizeof(T) == 4) { tensor[i] = static_cast<float>(FP32_NEG_INF); }
+                    #ifdef ENABLE_FP16
+                    else { tensor[i] = static_cast<float16_t>(FP16_NEG_INF); }
+                    #endif
+                }
+                else {
+                    if (sizeof(T) == 4) { tensor[i] = static_cast<float>(FP32_POS_INF); } 
+                    #ifdef ENABLE_FP16
+                    else { tensor[i] = static_cast<float16_t>(FP16_POS_INF); }
+                    #endif
+                }
+            #endif
+        }
+    }
+    std::cout << name << ": " << count << " NaNs\n";
+    #ifdef FIX_MATH
+    if (count != 0) {
+        std::cout << ", BUT WE ARE FIXING AND IGNORING\n";
+    }
+    else {
+        std::cout << "\n";
+    }
+    count = 0;
+    #else 
+    std::cout << "\n";
+    #endif
+    return count;
+}
+
+template <typename T>
+size_t findInf(T* tensor, const std::vector<size_t>& shape, std::string name="blank" ) {
+    size_t totalElements = reduceDims(shape);
+    size_t count = 0;
+    for (size_t i = 0; i < totalElements; ++i) {
+        if (std::isinf(static_cast<float>(tensor[i]))) {
+            ++count;
+            #ifdef FIX_MATH
+                if (std::signbit(static_cast<float>(tensor[i]))) {
+                    if (sizeof(T) == 4) { tensor[i] = static_cast<float>(FP32_NEG_INF); }
+                    #ifdef ENABLE_FP16
+                    else { tensor[i] = static_cast<float16_t>(FP16_NEG_INF); }
+                    #endif
+                }
+                else {
+                    if (sizeof(T) == 4) { tensor[i] = static_cast<float>(FP32_POS_INF); } 
+                    #ifdef ENABLE_FP16
+                    else { tensor[i] = static_cast<float16_t>(FP16_POS_INF); }
+                    #endif
+                }
+            #endif
+        }
+    }
+    std::cout << name << ": " << count << " Infs";
+    #ifdef FIX_MATH
+    if (count != 0) {
+        std::cout << ", BUT WE ARE FIXING AND IGNORING\n";
+    }
+    else {
+        std::cout << "\n";
+    }
+    count = 0;
+    #else 
+    std::cout << "\n";
+    #endif
+    return count;
+}
+
+template <typename T>
+size_t findNanAndInf(T* tensor, const std::vector<size_t>& shape, std::string name="blank" 
+) {
+    size_t count = 0;
+    count += findNaN(tensor, shape, name);
+    count += findInf(tensor, shape, name);
+    return count;
+}
+
+void fp16_to_fp32(ushort* in, float* out, const std::vector<size_t> dims) {
+    assert((void*)in != (void*)out);
+    #if defined(DEBUG) && defined(ENABLE_FP16)
+        assert(findNanAndInf((float16_t*)in, dims, "fp16 before conversion") == 0);
+    #endif
+    size_t num_elem = reduceDims(dims);
+    for (size_t i = 0; i < num_elem; i++) {
+        out[i] = half_to_float(in[i]);
+    }
+    #if defined(DEBUG) && defined(ENABLE_FP16)
+        assert(findNanAndInf((float*)out, dims, "fp32 after conversion") == 0);
+    #endif
+}
+void fp32_to_fp16(float* in, ushort* out, const std::vector<size_t> dims) {
+    #if defined(DEBUG) && defined(ENABLE_FP16)
+        assert(findNanAndInf((float*)in, dims, "fp32 before conversion") == 0);
+    #endif
+    size_t num_elem = reduceDims(dims);
+    for (size_t i = 0; i < num_elem; i++) {
+        out[i] = float_to_half(in[i]);
+    }
+    #if defined(DEBUG) && defined(ENABLE_FP16)
+        assert(findNanAndInf((float16_t*)out, dims, "fp16 after conversion") == 0);
+    #endif
+}
+
+template <typename T>
+void printN(const std::string& str, const T* vec, const size_t N, bool quantize, bool enable_fp16=false) {
     std::cout << str;
     std::cout << ": [";
     for (size_t i = 0; i < N; i++) {
         if (quantize) {
             std::cout << (int)(vec[i]);
+        }
+        else if (enable_fp16) {
+            std::cout << half_to_float((FP16)vec[i]);
         }
         else {
             std::cout << vec[i];
@@ -207,7 +348,16 @@ void printTensor(const std::string& name, const T* tensor, const std::vector<siz
     printV(name, shape);
     assert(shape.size() >= 2);
     std::vector<size_t> shape_2d = {shape.end()[-2], shape.end()[-1]};
-    printTensor2(tensor, shape_2d);
+    if (sizeof(T) == 2) {
+        std::cout << "case 1\n";
+        #ifdef ENABLE_FP16
+            printTensor2((float16_t*)tensor, shape_2d);
+        #endif
+    }
+    else {
+        std::cout << "case 2\n";
+        printTensor2(tensor, shape_2d);
+    }
 }
 
 template <typename T>
@@ -229,21 +379,17 @@ void printTensorColumn(
 }
 
 template <typename T>
-void findNaN(const std::string& name, const T* tensor, const std::vector<size_t>& shape) {
-    // Calculate the total number of elements in the tensor
-    size_t totalElements = 1;
-    for (size_t dim : shape) {
-        totalElements *= dim;
+void printNumElem(
+    const std::vector<T>& vec
+) {
+    size_t last_index = vec.size() - 1;
+    size_t i;
+    for (i = 0; i < vec.size(); i++) {
+        if (vec[last_index - i] != 0) { break; }
     }
-    // Count the number of matches
-    int count = 0;
-    for (size_t i = 0; i < totalElements; ++i) {
-        if (std::isnan(tensor[i])) {
-            ++count;
-        }
-    }
-    std::cout << name << ": " << count << "\n";
+    std::cout << "num of elements in vec: " << vec.size() - i << "\n";
 }
+
 
 template <typename T>
 void saveTensor(const std::string& path, const T* tensor, const std::vector<size_t>& shape) {
@@ -374,6 +520,15 @@ void mySoftmax(const float* tensor, float* out, const std::vector<size_t>& dims)
         expSum = 0.0;
         for (int j = 0; j < inner_dim_size; j++) {
             const float ei = expf(tensor[i*inner_dim_size + j] - maxElt);
+            #if defined(DEBUG) && defined(ENABLE_FP16)
+                if (std::isnan(ei)) {
+                    std::cout << "\nvalue: " << tensor[i*inner_dim_size + j] << ", ";
+                    std::cout <<  "max: " << maxElt<< ", ";
+                    std::cout <<  "diff: " << tensor[i*inner_dim_size + j] - maxElt << ", ";
+                    std::cout <<  "exp(diff): " << ei << "\n";
+                    exit(0);
+                }
+            #endif
             out[i*inner_dim_size + j] = ei;
             expSum += ei;
         }
@@ -468,7 +623,19 @@ size_t Argmax(const T* ptr, const size_t len) {
     return max_index;
 }
 
-
+size_t fp16Argmax(const ushort* ptr, const size_t len) {
+    size_t max_index = 0;
+    float float_max = std::numeric_limits<float>::lowest();
+    float float_val;
+    for (size_t i = 0; i < len; i++) {
+        float_val = half_to_float(ptr[i]);
+        if (float_max < float_val) {
+            float_max = float_val;
+            max_index = i;
+        }
+    }
+    return max_index;
+}
 
 // // not input-to-output safe
 // void truncate_u8(
@@ -602,12 +769,17 @@ void truncate(
 
 template <typename T>
 void mul(const T* ten1, const T* ten2, T* out, const std::vector<size_t>& dims) {
+    // std::cout << "check 1\n";
     size_t num_elem = 1;
     for (size_t i = 0; i < dims.size(); i++) { num_elem *= dims[i]; }
     // std::cout << "\t\t multiplication num_elem: " << num_elem << "\n";
+    // std::cout << "check 2\n";
     for (size_t i = 0; i < num_elem; i++) {
+        // std::cout << "check 3\n";
         out[i] = ten1[i] * ten2[i];
+        // std::cout << "check 4\n";
     }
+    // std::cout << "check 5\n";
 }
 
 // void add_u8(const uint8_t* ten1, const uint8_t* ten2, uint8_t* out, const std::vector<size_t>& dims) {
@@ -1056,43 +1228,50 @@ void apply_rotary_pos_emb(
     // printTensor("query right before multiplication", q, q_dims);
     // printTensor("cos_buff right before multiplication", cos_buff, cos_buff_dims);
     // printTensor("q * cos BEFORE", q_temp_buff, q_dims);
+
+    #ifdef ENABLE_FP16
+        #define ROTARY_TYPE float16_t
+    #else
+        #define ROTARY_TYPE T
+    #endif
+
+    std::cout << "first multiple\n";
+
+    // remove all the do math stuff later**
+
+    #ifdef DO_MATH
     for (size_t i = 0; i < q_dims[0]; i++) {
         for (size_t j = 0; j < q_dims[1]; j++) {
-            // std::cout << "i : " << i << ", j: " << j << "\n";
             mul(
-                &(q[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff, 
-                &(q_temp_buff[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff_dims);
-            // if (j ==1 ) { std::cout << "FIRST VALUE:" << q_temp_buff[0] << "\n";}
+                (ROTARY_TYPE*)&(q[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), (ROTARY_TYPE*)cos_buff, 
+                (ROTARY_TYPE*)&(q_temp_buff[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff_dims);
             mul(
-                &(k[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff,
-                &(k_temp_buff[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff_dims);
-            // if (j ==1 ) { std::cout << "FIRST VALUE:" << q_temp_buff[0] << "\n";}
+                (ROTARY_TYPE*)&(k[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), (ROTARY_TYPE*)cos_buff,
+                (ROTARY_TYPE*)&(k_temp_buff[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), cos_buff_dims);
         }
     }
-    // printTensor("q * cos", q_temp_buff, q_dims);
-    // printTensor("q before rotate half", q, q_dims);
+    #endif
+
+    std::cout << "done\n";
     rotate_half(q, q_dims, q_embed, q_embed_dims); // this might cause problems with the outdims
-    // printTensor("q after rotate half", q_embed, q_embed_dims);
-    // printV("k_dims", k_dims);
-    // printTensor("k before rotate half", k, k_dims);
     rotate_half(k, k_dims, k_embed, k_embed_dims); // rotate_half() intializes dims
-    // printTensor("k after rotate half", k_embed, k_embed_dims);
-    // std::cout << "\tCalling Mutliply Loop\n";
+
+    #ifdef DO_MATH
     for (int i = 0; i < q_dims[0]; i++) {
         for (int j = 0; j < q_dims[1]; j++) {
             mul(
-                &(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff, 
-                &(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff_dims);
+                (ROTARY_TYPE*)&(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), (ROTARY_TYPE*)sin_buff, 
+                (ROTARY_TYPE*)&(q_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff_dims);
             mul(
-                &(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff, 
-                &(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff_dims);
+                (ROTARY_TYPE*)&(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), (ROTARY_TYPE*)sin_buff, 
+                (ROTARY_TYPE*)&(k_embed[i*q_dim_offsets[0] + j*q_dim_offsets[1]]), sin_buff_dims);
         }
     }
-    // printTensor("(rotate_half(q) * sin)", q_embed, q_embed_dims);
-    // std::cout << "\tCalling add_32f\n";
-    add(q_embed, q_temp_buff, q_embed, q_embed_dims);
-    // std::cout << "\tCalling add_32f\n";
-    add(k_embed, k_temp_buff, k_embed, k_embed_dims);
+
+    add((ROTARY_TYPE*)q_embed, (ROTARY_TYPE*)q_temp_buff, (ROTARY_TYPE*)q_embed, q_embed_dims);
+    add((ROTARY_TYPE*)k_embed, (ROTARY_TYPE*)k_temp_buff, (ROTARY_TYPE*)k_embed, k_embed_dims);
+    #endif
+
     //free
     free(cos_buff);
     free(sin_buff);
@@ -1199,7 +1378,6 @@ void transpose(
     }
 }
 
-
 // NOTE: Make sure this works for
 // NOTE: for safety, just made all the shapes 4d, then outside u can modify the shape after
 
@@ -1233,24 +1411,31 @@ void DynamicTruncationAndConcatentation(
     // std::vector<size_t>& q_out_shape,
     // std::vector<size_t>& k_out_shape,
     // std::vector<size_t>& v_out_shape,
-    std::vector<size_t>& sin_shape,
-    std::vector<size_t>& cos_shape,
+    // std::vector<size_t>& sin_shape,
+    // std::vector<size_t>& cos_shape,
     std::vector<size_t>& key_cache_shape,
     std::vector<size_t>& value_cache_shape,
-    std::vector<size_t>& query_rot_buff_dims,
-    std::vector<size_t>& query_pass_buff_dims,
-    std::vector<size_t>& key_rot_buff_dims,
-    std::vector<size_t>& key_pass_buff_dims,
+    // std::vector<size_t>& query_rot_buff_dims,
+    // std::vector<size_t>& query_pass_buff_dims,
+    // std::vector<size_t>& key_rot_buff_dims,
+    // std::vector<size_t>& key_pass_buff_dims,
 
     const int rotary_emb_dim,
     const std::vector<int>& position_ids
 ) {
+    auto sin_shape           = std::vector<size_t>();
+    auto cos_shape           = std::vector<size_t>();
+    auto query_rot_buff_dims = std::vector<size_t>();
+    auto query_pass_buff_dims = std::vector<size_t>();
+    auto key_rot_buff_dims   = std::vector<size_t>();
+    auto key_pass_buff_dims  = std::vector<size_t>();
+
     bool firstRunForDecoder = false;
     if (key_cache_shape.size() == 0) { firstRunForDecoder = true; }
 
-    printV("query_states_shape", query_shape);
-    printV("key_states_shape", key_shape);
-    printV("value_states_shape", value_shape);
+    // printV("query_states_shape", query_shape);
+    // printV("key_states_shape", key_shape);
+    // printV("value_states_shape", value_shape);
     printV("key_cache_shape", key_cache_shape);
     printV("value_cache_shape", value_cache_shape);
 
@@ -1367,13 +1552,22 @@ void DynamicTruncationAndConcatentation(
 
     // kv caching
     if (firstRunForDecoder) {
+        // transpose(
+        //     key_states, key_cache, {0, 2, 1, 3}, 
+        //     key_shape, key_cache_shape
+        // );
+        transpose(
+            value_states, value_cache, {0, 2, 1, 3},
+            value_shape, value_cache_shape
+        );
         transpose(
             key_states, key_cache, {0, 2, 1, 3}, 
             key_shape, key_cache_shape
         );
+        // to apply transpose on key_states
         transpose(
-            value_states, value_cache, {0, 2, 1, 3},
-            value_shape, value_cache_shape
+            key_cache, key_states, {0, 2, 3, 1}, 
+            key_cache_shape, key_shape
         );
     }
     else {
@@ -1424,9 +1618,8 @@ void DynamicTruncationAndConcatentation(
     printV("value_cache_shape", value_cache_shape);
 
     printTensor("query_states", query_states, query_shape);
-    printTensor("key_states", key_states, key_shape);
+    printTensor("key_states transposed", key_states, key_shape);
     printTensor("value_states", value_states, value_shape);
-
 }
 
 // 
@@ -1572,6 +1765,104 @@ void upcastDivideSqrtApplyMask(
     std::vector<size_t>& p2_shape
 ) {
 
+}
+
+// vertical expansion
+void flatten_along_row(std::vector<size_t>& dims) {
+  assert(dims.size() >= 2);
+  long long int num_rows = dims.end()[-2]; // could cause issues for gpu
+  long long int num_cols = dims.end()[-1];
+  for (int i = 0; i < dims.size()-2; i++) { num_rows *= dims[i];}
+  dims = std::vector<size_t>(2);
+  dims[0] = num_rows;
+  dims[1] = num_cols;
+//   for (auto i : dims) {std::cout << i << " ";}
+}
+
+// horizontal expansion
+void flatten_along_col(std::vector<size_t>& dims) {
+  assert(dims.size() >= 2);
+  long long int num_rows = dims.end()[-2];
+  long long int num_cols = dims.end()[-1]; // could cause issues for gpu
+  for (int i = 0; i < dims.size()-2; i++) { num_cols *= dims[i];}
+  dims = std::vector<size_t>(2);
+  dims[0] = num_rows;
+  dims[1] = num_cols;
+//   for (auto i : dims) {std::cout << i << " ";}
+}
+
+void flatten_to_3d(std::vector<size_t>& dims) {
+    std::vector<size_t> temp_dims = {1,1,1};
+    for (int i = 0; i < dims.size()-2; i++) { 
+        temp_dims[0] *= dims[i];
+    }
+    temp_dims.end()[-1] = dims.end()[-1];
+    temp_dims.end()[-2] = dims.end()[-2];
+    dims = temp_dims;
+}
+
+// does not set output dims, use constrained version for that
+void matmul_Nd_32f(const float* ten1, const float* ten2, float* out, 
+                   std::vector<size_t> dims1, std::vector<size_t> dims2) {
+    assert(dims1.end()[-1] == dims2.end()[-2]); // rule of matrix multiplication
+    // use ints, as size_t's seem to segfault if they go negative
+    printV("dims1", dims1);
+    printV("dims2", dims2);
+    // flatten
+    flatten_to_3d(dims1);
+    flatten_to_3d(dims2);
+    std::cout << "dims after flattening:\n";
+    printV("dims1", dims1);
+    printV("dims2", dims2);
+    size_t rows1 = dims1.end()[-2];
+    size_t cols1 = dims1.end()[-1];
+    size_t rows2 = dims2.end()[-2];
+    size_t cols2 = dims2.end()[-1];
+    assert(cols1 == rows2); // rule of matrix multiplication
+    assert(dims1[0] == dims1[0]);
+    assert(dims1.size() == 3);
+    int offset = dims1.end()[-2] * dims2.end()[-1];
+    for (size_t z = 0; z < dims1[0]; z++) {
+        // 2d matmul algorithm
+        for (size_t i = 0; i < rows1; ++i) {
+            for (size_t j = 0; j < cols2; ++j) {
+                float sum = 0.0;
+                for (size_t k = 0; k < rows2; ++k) {
+                    if (std::isinf(ten1[i*cols1 + k + z*offset] * ten2[k*cols2 + j + z*offset])) {
+                        std::cout << "ten1: " << ten1[i*cols1 + k + z*offset] << ", ";
+                        std::cout << "ten2: " << ten2[k*cols2 + j + z*offset] << ", ";
+                        std::cout << "ten1 + ten2: " << ten1[i*cols1 + k + z*offset] * ten2[k*cols2 + j + z*offset] << "\n";
+                    }
+                    
+                    if (std::isinf(sum + ten1[i*cols1 + k + z*offset] * ten2[k*cols2 + j + z*offset])) {
+                        std::cout << "sum before: " << sum << ", ";
+                        std::cout << "ten1: " << ten1[i*cols1 + k + z*offset] << ", ";
+                        std::cout << "ten2: " << ten2[k*cols2 + j + z*offset] << ", ";
+                        std::cout << "ten1 + ten2: " << ten1[i*cols1 + k + z*offset] * ten2[k*cols2 + j + z*offset] << "\n";
+                        std::cout << "sum after: " << sum + ten1[i*cols1 + k + z*offset] * ten2[k*cols2 + j + z*offset] << "\n";
+                    }
+                    sum += ten1[i*cols1 + k + z*offset] * ten2[k*cols2 + j + z*offset];
+                }
+                out[i*cols2 + j + z*offset] = sum;
+            }
+        }
+    }
+}
+
+// makes certain assumptions to set output dimensions
+void matmul_Nd_32f_constrained(const float* ten1, const float* ten2, float* out, 
+                   std::vector<size_t> dims1, std::vector<size_t> dims2,
+                   std::vector<size_t>& out_dims) {
+
+    assert(dims1.end()[-1] == dims2.end()[-2]); // rule of matrix multiplication
+    // set out_dims (assuming additional contraints below)
+    assert(dims1.size() == dims2.size());
+    int rank = dims1.size();
+    out_dims = std::vector<size_t>();
+    for (int i = 0; i < rank - 1; i++) { out_dims.push_back(dims1[i]); }
+    out_dims.push_back(dims2.end()[-1]);
+    // calling matmul
+    matmul_Nd_32f(ten1, ten2, out, dims1, dims2);
 }
 
 #endif

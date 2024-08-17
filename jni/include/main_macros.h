@@ -3,7 +3,8 @@
 
 #include <iostream>
 
-#define DEBUG
+// #define DEBUG // enabled through makefiles
+#define DEBUG_2 // enabled through makefiles
 
 // float
 #define BATCH_SIZE 1
@@ -21,18 +22,33 @@
 #define SIN_COS_MAX_SEQ_LEN 2048 // a temporary solution
 
 // ENSURE TO CHANGE THIS FOR RUNNING ON PHONE
-#define DATASIZE 4
+// #define DATASIZE 4
 
-#if DATASIZE == 1
-    #define QUANTIZE
-    #define QUANT_TYPE uint8_t
-    #define UNQUANT_TYPE float
-#elif DATASIZE == 4
-    #define QUANT_TYPE float
-    #define UNQUANT_TYPE float
-#endif
+// #if DATASIZE == 1
+//     #define QUANTIZE
+//     #define QUANT_TYPE uint8_t
+//     #define UNQUANT_TYPE float
+// #elif DATASIZE == 4
+//     #define QUANT_TYPE float
+//     #define UNQUANT_TYPE float
+// #endif
 
-#define LOWEST -65504
+#define FP16 ushort
+
+// overflow fixing
+// #define FP16_POS_INF 65504.0f
+// #define FP16_NEG_INF -65504.0f
+// #define FP32_POS_INF 3.4e38
+// #define FP32_NEG_INF -3.4e38
+
+#define FP16_POS_INF 65504.0f
+#define FP16_NEG_INF -65504.0f
+#define FP32_POS_INF 3.4e30
+#define FP32_NEG_INF -3.4e30
+
+
+// #define LOWEST -65504 // fp16
+#define LOWEST -3.4e30 // fp32
 
 #define VOCAB_SIZE 51200
 
@@ -40,9 +56,10 @@
 // #define HEAD_DIM (HIDDEN_SIZE / ATTENTION_HEADS)
 #define HEAD_DIM 80
 
-// #define DECODERS 3
-// #define DECODERS 16
+// #define DECODERS 2
 #define DECODERS 32
+// #define DECODERS 32
+
 
 
 #define SIN_COS_BUFF_SIZE  (SIN_COS_DIM*SIN_COS_MAX_SEQ_LEN)
@@ -69,7 +86,7 @@ void stall() {
     std::cout << "dum: " << dum << "\n";
 }
 
-#ifdef DEBUG
+#ifdef DEBUG_2
     #define CLOCK_TYPE std::chrono::steady_clock
     #define CLOCK_INIT CLOCK_TYPE::time_point start; CLOCK_TYPE::time_point end; int64_t duration;
     #define CLOCK_START start = CLOCK_TYPE::now();
@@ -80,6 +97,7 @@ struct RuntimeParams {
     zdl::DlSystem::Runtime_t runtime_type;
     size_t datasize;
     bool isTFBuffer;
+    std::string dataDir;
 };
 
 void printRuntime(zdl::DlSystem::Runtime_t runtime) {

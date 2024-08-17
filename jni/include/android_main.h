@@ -28,7 +28,8 @@ std::string modelLaunch(
     const std::map<std::string, RuntimeParams>& runtime_params,
     const std::set<std::pair<std::string, std::string>>& ModelNameAndPaths, // abs paths
     const std::map<std::string, std::string>& otherPaths, // abs path of sin, cos, embeddingFIle
-    const uint32_t& max_iterations, 
+    const uint32_t max_iterations, 
+    const uint8_t decoder_cache_size,
     const Free_Status exitAndFree,
     const int debugReturnCode,
     const uint32_t end_token_id,

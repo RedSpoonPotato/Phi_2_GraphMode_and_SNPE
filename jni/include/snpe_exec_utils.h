@@ -16,6 +16,7 @@
 #include <iomanip>
 #include <chrono>
 #include <set>
+#include <algorithm>
 
 
 
@@ -303,10 +304,10 @@ void loadFileAndDontResize(std::vector<T>& vec, const std::string& filePath) {
     file.seekg(0, std::ios::beg);
     size_t datasize = sizeof(T);
     #ifdef DEBUG
-        std::cout << "file size: " << fileSize << "\n";
-        std::cout << "datasize: " << datasize << "\n";
-        std::cout << "vec buff size: " << vec.size() << "\n";
-        std::cout << "vec buff size in bytes: " << datasize * vec.size() << "\n";
+        // std::cout << "file size: " << fileSize << "\n";
+        // std::cout << "datasize: " << datasize << "\n";
+        // std::cout << "vec buff size: " << vec.size() << "\n";
+        // std::cout << "vec buff size in bytes: " << datasize * vec.size() << "\n";
     #endif
     // Load the file content into the vector
     if (!file.read(reinterpret_cast<char*>(vec.data()), fileSize)) {
@@ -323,9 +324,11 @@ void loadFileAndDontResize(std::vector<T>& vec, const std::string& filePath) {
 void loadAndQuantize(
     std::vector<uint8_t>& buff, 
     const std::string& filePath,
-    bool quantize
+    bool quantize,
+    bool enable_fp16
 ) {
     if (quantize) {
+        std::cout << "case 1\n";
         // grab fp32 data
         std::vector<uint8_t> temp_buff;
         loadFileAndResize(temp_buff, filePath);
@@ -345,7 +348,14 @@ void loadAndQuantize(
         for (int i = 0; i < 5; i++) { std::cout << buff[i] << " "; } 
         std::cout << "\n";
     }
+    else if (enable_fp16) {
+        std::cout << "case 2\n";
+        loadFileAndResize(buff, filePath);
+        fp32_to_fp16((float*)buff.data(), (FP16*)buff.data(), {SIN_COS_BUFF_SIZE});
+        buff.resize(buff.size() / 2);
+    }
     else {
+        std::cout << "case 3\n";
         loadFileAndResize(buff, filePath);
     }
 }
@@ -362,6 +372,8 @@ void loadLayerNorms(
     assert(layernorm_weights.size() == DECODERS);
     for (size_t i = 0; i < DECODERS; i++) {
         std::string i_str = std::to_string(i);
+        layernorm_weights[i].resize(HIDDEN_SIZE);
+        layernorm_biases[i].resize(HIDDEN_SIZE);
         loadFileAndDontResize(layernorm_weights[i], otherPaths.at("layernorm_weight_" + i_str));
         loadFileAndDontResize(layernorm_biases[i], otherPaths.at("layernorm_bias_" + i_str));
     }
@@ -384,9 +396,10 @@ void loadDecoderWeightsAndBiases(
     std::vector<std::vector<T>>& fc2_biases, 
     std::vector<std::vector<T>>& p4_biases,
     const std::map<std::string, std::string>& otherPaths,
-    size_t quant_size
+    size_t quant_size,
+    uint8_t decoder_cache_size
 ) {
-    for (size_t i = 0; i < DECODERS; i++) {
+    for (size_t i = 0; i < decoder_cache_size; i++) {
         std::string i_str = std::to_string(i);
         q_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
         k_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
@@ -484,14 +497,6 @@ void linkBuffers(
     (*models)["P1_V_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
     (*models)["P1_V_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_5;
 
-    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"] = &buff_3;
-    (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
-    (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
-
-    (*models)["P3_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
-    (*models)["P3_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
-    (*models)["P3_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
-
     (*models)["FC1_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
     (*models)["FC1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
     (*models)["FC1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
@@ -502,6 +507,24 @@ void linkBuffers(
     (*models)["FC2_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
     (*models)["FC2_reshaped_with_bias"].applicationOutputBuffers["fc2_out:0"] = &buff_6;
 
+    (*models)["P2_reshaped"].applicationInputBuffers["query_states:0"] = &buff_3;
+    (*models)["P2_reshaped"].applicationInputBuffers["key_states:0"] = &buff_4;
+    (*models)["P2_reshaped"].applicationOutputBuffers["attn_weights:0"] = &buff_8;
+
+    (*models)["P3_reshaped"].applicationInputBuffers["attn_weights:0"] = &buff_8;
+    (*models)["P3_reshaped"].applicationInputBuffers["value_states:0"] = &buff_5;
+    (*models)["P3_reshaped"].applicationOutputBuffers["attn_output:0"] = &buff_3;
+
+    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_3;
+    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
+    (*models)["P4_1_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_4;
+
+    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
+    (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
+    (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
+
     // (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
     // (*models)["FC1_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
     // (*models)["FC1_reshaped_no_bias"].applicationOutputBuffers["fc1_mm_out:0"] = &buff_8;
@@ -510,9 +533,9 @@ void linkBuffers(
     // (*models)["FC2_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
     // (*models)["FC2_reshaped_no_bias"].applicationOutputBuffers["fc2_mm_out:0"] = &buff_8;
 
-    (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"] = &buff_3;
-    (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
-    (*models)["FinalLMHead_reshaped_no_bias"].applicationOutputBuffers["final_output:0"] = &buff_8;
+    // (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["final_input:0"] = &buff_3;
+    // (*models)["FinalLMHead_reshaped_no_bias"].applicationInputBuffers["weights:0"] = &buff_8;
+    // (*models)["FinalLMHead_reshaped_no_bias"].applicationOutputBuffers["final_output:0"] = &buff_8;
 
     (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
     (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
@@ -522,16 +545,6 @@ void linkBuffers(
     //     (*models)["P4_1_reshaped_layer_" + i_str].applicationInputBuffers["p3_out:0"] = &buff_3;
     //     (*models)["P4_1_reshaped_layer_" + i_str].applicationOutputBuffers["p4_1_out:0"] = &buff_4;
     // }
-
-    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["hidden_states:0"] = &buff_8;
-    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &buff_8;
-    (*models)["P4_1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &buff_8;
-    (*models)["P4_1_reshaped_with_bias"].applicationOutputBuffers["dense_out:0"] = &buff_4;
-
-    (*models)["P4_2_reshaped"].applicationInputBuffers["p4_1_out:0"] = &buff_4;
-    (*models)["P4_2_reshaped"].applicationInputBuffers["feed_forward_hidden_states:0"] = &buff_8;
-    (*models)["P4_2_reshaped"].applicationInputBuffers["residual:0"] = &buff_1;
-    (*models)["P4_2_reshaped"].applicationOutputBuffers["decoder_output:0"] = &buff_3;
 
     // (*models)["Final_LM_Head"].applicationInputBuffers["final_input:0"] = &buff_3;
     // (*models)["Final_LM_Head"].applicationOutputBuffers["final_output:0"] = &buff_8;
@@ -1111,7 +1124,7 @@ void reshapeModels(
         else {
             modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
                 models[model_name].input_user_buff_vec, models[model_name].snpe, input_name.c_str(), 
-                models[model_name].datasize, i);
+                models[model_name].datasize, i, models[model_name].isTFBuffer);
         }
         i++;
     }
@@ -1128,7 +1141,7 @@ void reshapeModels(
         else {
             modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
                 models[model_name].output_user_buff_vec, models[model_name].snpe, output_name.c_str(), 
-                models[model_name].datasize, i);
+                models[model_name].datasize, i, models[model_name].isTFBuffer);
         }
         // question: why not i++?
     }
@@ -1146,7 +1159,7 @@ void reshapeInitial(
     reshapeModels(models, "P2_reshaped",
     {
         {"query_states:0", {32, seq_len, 80}},
-        {"key_states:0", {32, tot_seq_len, 80}}
+        {"key_states:0", {32, 80, tot_seq_len}}
     });
 
     reshapeModels(models, "P3_reshaped",
@@ -1157,32 +1170,44 @@ void reshapeInitial(
 
     reshapeModels(models, "P1_Q_reshaped_with_bias",
         {
-            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+            {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+            {"bias:0", {1, HIDDEN_SIZE}}
         });
 
     reshapeModels(models, "P1_K_reshaped_with_bias",
         {
-            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+            {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+            {"bias:0", {1, HIDDEN_SIZE}}
         });
 
     reshapeModels(models, "P1_V_reshaped_with_bias",
         {
-            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+            {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+            {"bias:0", {1, HIDDEN_SIZE}}
         });
 
     reshapeModels(models, "FC1_reshaped_with_bias",
         {
-            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+            {"weights:0", {1, HIDDEN_SIZE, INTERMEDIATE_SIZE}},
+            {"bias:0", {1, INTERMEDIATE_SIZE}}
         });
 
     reshapeModels(models, "FC2_reshaped_with_bias",
         {
-            {"gelu_out:0", {seq_len, INTERMEDIATE_SIZE}}
+            {"gelu_out:0", {1, seq_len, INTERMEDIATE_SIZE}},
+            {"weights:0", {1, INTERMEDIATE_SIZE, HIDDEN_SIZE}},
+            {"bias:0", {1, HIDDEN_SIZE}}
         });
 
     reshapeModels(models, "P4_1_reshaped_with_bias",
         {
-            {"hidden_states:0", {seq_len, HIDDEN_SIZE}}
+            {"hidden_states:0", {1, seq_len, HIDDEN_SIZE}},
+            {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+            {"bias:0", {1, HIDDEN_SIZE}}
         });
 
     reshapeModels(models, "P4_2_reshaped",
@@ -1209,7 +1234,7 @@ void reshapeStuff(
     reshapeModels(models, "P2_reshaped",
     {
         {"query_states:0", {32, 1, 80}},
-        {"key_states:0", {32, tot_seq_len, 80}}
+        {"key_states:0", {32, 80, tot_seq_len}}
     });
 
     reshapeModels(models, "P3_reshaped",
@@ -1222,32 +1247,44 @@ void reshapeStuff(
 
         reshapeModels(models, "P1_Q_reshaped_with_bias",
             {
-                {"hidden_states:0", {1, HIDDEN_SIZE}}
+                {"hidden_states:0", {1, 1, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+                {"bias:0", {1, HIDDEN_SIZE}}
             });
 
         reshapeModels(models, "P1_K_reshaped_with_bias",
             {
-                {"hidden_states:0", {1, HIDDEN_SIZE}}
+                {"hidden_states:0", {1, 1, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+                {"bias:0", {1, HIDDEN_SIZE}}
             });
 
         reshapeModels(models, "P1_V_reshaped_with_bias",
             {
-                {"hidden_states:0", {1, HIDDEN_SIZE}}
+                {"hidden_states:0", {1, 1, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+                {"bias:0", {1, HIDDEN_SIZE}}
             });
 
         reshapeModels(models, "FC1_reshaped_with_bias",
             {
-                {"hidden_states:0", {1, HIDDEN_SIZE}}
+                {"hidden_states:0", {1, 1, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, INTERMEDIATE_SIZE}},
+                {"bias:0", {1, INTERMEDIATE_SIZE}}
             });
 
         reshapeModels(models, "FC2_reshaped_with_bias",
             {
-                {"gelu_out:0", {1, INTERMEDIATE_SIZE}}
+                {"gelu_out:0", {1, 1, INTERMEDIATE_SIZE}},
+                {"weights:0", {1, INTERMEDIATE_SIZE, HIDDEN_SIZE}},
+                {"bias:0", {1, HIDDEN_SIZE}}
             });
 
         reshapeModels(models, "P4_1_reshaped_with_bias",
             {
-                {"hidden_states:0", {1, HIDDEN_SIZE}}
+                {"hidden_states:0", {1, 1, HIDDEN_SIZE}},
+                {"weights:0", {1, HIDDEN_SIZE, HIDDEN_SIZE}},
+                {"bias:0", {1, HIDDEN_SIZE}}
             });
 
         reshapeModels(models, "P4_2_reshaped",
@@ -1257,7 +1294,7 @@ void reshapeStuff(
                 {"residual:0", {1, HIDDEN_SIZE}},
             });
 
-        reshapeModels(models, "FinalLMHead_reshaped_no_bias",
+        reshapeModels(models, "Final_LM_Head",
             {
                 {"final_input:0", {1, HIDDEN_SIZE}}
             });
@@ -1274,14 +1311,13 @@ void freeModels(std::vector<ModelRuntime>* models) {
 
 
 
-void freeModels(std::map<std::string, ModelRuntime>* models) {
-    for (auto const& pair : *models)
+void freeModels(std::map<std::string, ModelRuntime>& models) {
+    for (auto const& pair : models)
     {
         zdl::SNPE::SNPEFactory::terminateLogging();
         const std::string& str = pair.first;
-        (*models)[str].snpe.reset();
+        models[str].snpe.reset();
     }
-    delete models;
 }
 
 template <typename T>
@@ -1443,48 +1479,59 @@ int loadFileIntoVec(std::string filePath, std::vector<T>& dataVec) {
 
 bool reMapUserBuffer(
     std::map<std::string, ModelRuntime>& models,
-    std::string model_name,
-    std::string buffer_name
+    const std::string model_name,
+    const std::string buffer_name
 ) {
+    // std::cout << "starting\n";
     CLOCK_INIT
-    std::cout << "Measuring reMapUserBuffer\n";
+    // std::cout << "Measuring reMapUserBuffer for: " << model_name << "\n";
     CLOCK_START
     // find index
     size_t index;
     auto it = std::find(models[model_name].input_names.begin(), models[model_name].input_names.end(), buffer_name);
     if (it != models[model_name].input_names.end()) {
-        index = std::distance(models[model_name].input_names.end(), it);
+        index = std::distance(models[model_name].input_names.begin(), it);
+        #ifdef DEBUG
+            // std::cout << "\tinput: " << buffer_name <<  " (index: " << index << ")" << "\n";
+        #endif
         modifyUserBuffer(models[model_name].inputMap, models[model_name].applicationInputBuffers,
             models[model_name].input_user_buff_vec, models[model_name].snpe, buffer_name.c_str(), 
-            models[model_name].datasize, index);
+            models[model_name].datasize, index, models[model_name].isTFBuffer);
     }
     else {
         it = std::find(models[model_name].output_names.begin(), models[model_name].output_names.end(), buffer_name);
         if (it != models[model_name].output_names.end()) {
-            index = std::distance(models[model_name].output_names.end(), it);
+            #ifdef DEBUG
+                // std::cout << "\toutput: " << buffer_name <<  " (index: " << index << ")" << "\n";
+            #endif
+            index = std::distance(models[model_name].output_names.begin(), it);
             modifyUserBuffer(models[model_name].outputMap, models[model_name].applicationOutputBuffers,
                 models[model_name].output_user_buff_vec, models[model_name].snpe, buffer_name.c_str(), 
-                models[model_name].datasize, index);
+                models[model_name].datasize, index, models[model_name].isTFBuffer);
         }
         else {
             // buffer_name does not seem to exist
+            assert(false);
             return false;
         }
     }
     CLOCK_END
-    std::cout << "Measured reMapUserBuffer\n";
+    // std::cout << "Measured reMapUserBuffer\n";
     return true;
 }
 
 
 // assuming either uint8_t or float for now
-void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name, bool quantize) {
+void execute(std::map<std::string, ModelRuntime>& models, const std::string& model_name, bool quantize, bool enable_fp16=false) {
     #ifdef DEBUG
         std::cout << "\nEXECUTION STAGE <" << model_name << "> ";
         printRuntime(models[model_name].runtime);
         for (const std::string& input_name : models[model_name].input_names) {
             if (quantize) {
                 printN(input_name, (uint8_t*)models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT, quantize);
+            }
+            else if  (enable_fp16) {
+                printN(input_name, (FP16*)models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT, quantize, enable_fp16);
             }
             else {
                 printN(input_name, (float*)models[model_name].applicationInputBuffers[input_name]->data(), N_PRINT, quantize);
@@ -1495,6 +1542,9 @@ void execute(std::map<std::string, ModelRuntime>& models, const std::string& mod
             if (quantize) {
                 printN(output_name, (uint8_t*)models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT, quantize);
             }
+            else if (enable_fp16) {
+                printN(output_name, (FP16*)models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT, quantize, enable_fp16);
+            }
             else {
                 printN(output_name, (float*)models[model_name].applicationOutputBuffers[output_name]->data(), N_PRINT, quantize);
             }
@@ -1504,71 +1554,188 @@ void execute(std::map<std::string, ModelRuntime>& models, const std::string& mod
     #endif
 }
 
-void reMap_QKV_FC1_FC2_P4(
-    std::map<std::string, ModelRuntime>& models, 
-    std::vector<uint8_t>& q_weight,
-    std::vector<uint8_t>& k_weight,
-    std::vector<uint8_t>& v_weight,
-    std::vector<uint8_t>& fc1_weight,
-    std::vector<uint8_t>& fc2_weight,
-    std::vector<uint8_t>& p4_weight,
-    std::vector<uint8_t>& q_bias,
-    std::vector<uint8_t>& k_bias,
-    std::vector<uint8_t>& v_bias,
-    std::vector<uint8_t>& fc1_bias,
-    std::vector<uint8_t>& fc2_bias,
-    std::vector<uint8_t>& p4_bias
+void reshapeToZero(
+    std::vector<std::vector<uint8_t>>& q_weights,
+    std::vector<std::vector<uint8_t>>& k_weights, 
+    std::vector<std::vector<uint8_t>>& v_weights, 
+    std::vector<std::vector<uint8_t>>& fc1_weights, 
+    std::vector<std::vector<uint8_t>>& fc2_weights, 
+    std::vector<std::vector<uint8_t>>& p4_weights,
+    std::vector<std::vector<uint8_t>>& q_biases,
+    std::vector<std::vector<uint8_t>>& k_biases, 
+    std::vector<std::vector<uint8_t>>& v_biases, 
+    std::vector<std::vector<uint8_t>>& fc1_biases, 
+    std::vector<std::vector<uint8_t>>& fc2_biases, 
+    std::vector<std::vector<uint8_t>>& p4_biases,
+    const size_t i
 ) {
-    models["P1_Q_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &q_weight;
-    assert(reMapUserBuffer(models, "P1_Q_reshaped_with_bias", "weights:0"));
-    models["P1_Q_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &q_bias;
-    assert(reMapUserBuffer(models, "P1_Q_reshaped_with_bias", "bias:0"));
+    q_weights[i].resize(0);
+    k_weights[i].resize(0);
+    v_weights[i].resize(0);
+    fc1_weights[i].resize(0);
+    fc2_weights[i].resize(0);
+    p4_weights[i].resize(0);
 
-    models["P1_K_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &k_weight;
-    assert(reMapUserBuffer(models, "P1_K_reshaped_with_bias", "weights:0"));
-    models["P1_K_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &k_bias;
-    assert(reMapUserBuffer(models, "P1_K_reshaped_with_bias", "bias:0"));
-
-    models["P1_V_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &v_weight;
-    assert(reMapUserBuffer(models, "P1_V_reshaped_with_bias", "weights:0"));
-    models["P1_V_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &v_bias;
-    assert(reMapUserBuffer(models, "P1_V_reshaped_with_bias", "bias:0"));
-
-    models["FC1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &fc1_weight;
-    assert(reMapUserBuffer(models, "FC1_reshaped_with_bias", "weights:0"));
-    models["FC1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &fc1_bias;
-    assert(reMapUserBuffer(models, "FC1_reshaped_with_bias", "bias:0"));
-
-    models["FC2_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &fc2_weight;
-    assert(reMapUserBuffer(models, "FC2_reshaped_with_bias", "weights:0"));
-    models["FC2_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &fc2_bias;
-    assert(reMapUserBuffer(models, "FC2_reshaped_with_bias", "bias:0"));
-
-    models["P4_1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &p4_weight;
-    assert(reMapUserBuffer(models, "P4_1_reshaped_with_bias", "weights:0"));
-    models["P4_1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &p4_bias;
-    assert(reMapUserBuffer(models, "P4_1_reshaped_with_bias", "bias:0"));
+    q_biases[i].resize(0);
+    k_biases[i].resize(0);
+    v_biases[i].resize(0);
+    fc1_biases[i].resize(0);
+    fc2_biases[i].resize(0);
+    p4_biases[i].resize(0);
 }
 
+void loadSingleDecoderWeightAndBias(
+    std::vector<std::vector<uint8_t>>& q_weights,
+    std::vector<std::vector<uint8_t>>& k_weights, 
+    std::vector<std::vector<uint8_t>>& v_weights, 
+    std::vector<std::vector<uint8_t>>& fc1_weights, 
+    std::vector<std::vector<uint8_t>>& fc2_weights, 
+    std::vector<std::vector<uint8_t>>& p4_weights,
+    std::vector<std::vector<uint8_t>>& q_biases,
+    std::vector<std::vector<uint8_t>>& k_biases, 
+    std::vector<std::vector<uint8_t>>& v_biases, 
+    std::vector<std::vector<uint8_t>>& fc1_biases, 
+    std::vector<std::vector<uint8_t>>& fc2_biases, 
+    std::vector<std::vector<uint8_t>>& p4_biases,
+    const std::map<std::string, std::string>& otherPaths,
+    size_t quant_size,
+    const size_t i,
+    const size_t decoder_weight_index
+) {
+    std::string decoder_string = std::to_string(decoder_weight_index);
+    // dont need to do
+    // q_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+    // k_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+    // v_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
+    // fc1_weights[i].resize(HIDDEN_SIZE * INTERMEDIATE_SIZE * quant_size, 0);
+    // fc2_weights[i].resize(INTERMEDIATE_SIZE * HIDDEN_SIZE * quant_size, 0);
+    // p4_weights[i].resize(HIDDEN_SIZE * HIDDEN_SIZE * quant_size, 0);
 
-template <typename T>
-void resetKV(T* in) {
-    uint8_t* in_8 = (uint8_t*)in;
-    T* in_past_keys;
-    T* in_past_values;
-    uint32_t* in_key_dims;
-    uint32_t* in_value_dims;
-    for (uint64_t i = 0; i < DECODERS; i++) {
-        in_past_keys =   (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
-        in_past_values = (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
-        in_key_dims = (uint32_t*)(&in_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
-        in_value_dims = (uint32_t*)(&in_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
-        for (uint64_t j = 0; j < 4; j++) {
-            in_key_dims[j]   = 0;
-            in_value_dims[j] = 0;
-        }
+    // q_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+    // k_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+    // v_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+    // fc1_biases[i].resize(INTERMEDIATE_SIZE * quant_size, 0);
+    // fc2_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+    // p4_biases[i].resize(HIDDEN_SIZE * quant_size, 0);
+
+    loadFileAndDontResize(q_weights[i], otherPaths.at("q_weight_" + decoder_string));
+    loadFileAndDontResize(k_weights[i], otherPaths.at("k_weight_" + decoder_string));
+    loadFileAndDontResize(v_weights[i], otherPaths.at("v_weight_" + decoder_string));
+    loadFileAndDontResize(fc1_weights[i], otherPaths.at("fc1_weight_" + decoder_string));
+    loadFileAndDontResize(fc2_weights[i], otherPaths.at("fc2_weight_" + decoder_string));
+    loadFileAndDontResize(p4_weights[i], otherPaths.at("p4_weight_" + decoder_string));
+
+    loadFileAndDontResize(q_biases[i], otherPaths.at("q_bias_" + decoder_string));
+    loadFileAndDontResize(k_biases[i], otherPaths.at("k_bias_" + decoder_string));
+    loadFileAndDontResize(v_biases[i], otherPaths.at("v_bias_" + decoder_string));
+    loadFileAndDontResize(fc1_biases[i], otherPaths.at("fc1_bias_" + decoder_string));
+    loadFileAndDontResize(fc2_biases[i], otherPaths.at("fc2_bias_" + decoder_string));
+    loadFileAndDontResize(p4_biases[i], otherPaths.at("p4_bias_" + decoder_string));
+}
+
+// could optimize later by possibly parallelizing the loading
+void load_and_reMap_QKV_FC1_FC2_P4(
+    std::map<std::string, ModelRuntime>& models, 
+    const uint8_t decoder_cache_size,
+    size_t decoder_weight_index,
+    const uint32_t iteration_num,
+    const std::map<std::string, std::string>& otherPaths,
+    size_t quant_size,
+    std::vector<std::vector<uint8_t>>& q_weights,
+    std::vector<std::vector<uint8_t>>& k_weights,
+    std::vector<std::vector<uint8_t>>& v_weights,
+    std::vector<std::vector<uint8_t>>& fc1_weights,
+    std::vector<std::vector<uint8_t>>& fc2_weights,
+    std::vector<std::vector<uint8_t>>& p4_weights,
+    std::vector<std::vector<uint8_t>>& q_biases,
+    std::vector<std::vector<uint8_t>>& k_biases,
+    std::vector<std::vector<uint8_t>>& v_biases,
+    std::vector<std::vector<uint8_t>>& fc1_biases,
+    std::vector<std::vector<uint8_t>>& fc2_biases,
+    std::vector<std::vector<uint8_t>>& p4_biases
+) {
+    
+    /* allocate memory and load from files */
+    size_t last_cache_index = decoder_cache_size - 1;
+    if (
+        (iteration_num != 0 && decoder_weight_index == last_cache_index) 
+            ||
+        (decoder_weight_index >= decoder_cache_size)
+    ) {
+        loadSingleDecoderWeightAndBias(
+            q_weights,
+            k_weights, 
+            v_weights, 
+            fc1_weights, 
+            fc2_weights, 
+            p4_weights, 
+            q_biases,
+            k_biases, 
+            v_biases, 
+            fc1_biases, 
+            fc2_biases, 
+            p4_biases,
+            otherPaths,
+            quant_size,
+            last_cache_index,
+            decoder_weight_index
+        );
     }
+
+    /* remap */
+    std::cout << "changing buffer assignment\n";
+    size_t buffer_index = std::min(decoder_weight_index, last_cache_index);
+
+    models["P1_Q_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &q_weights[buffer_index];
+    reMapUserBuffer(models, "P1_Q_reshaped_with_bias", "weights:0");
+    models["P1_Q_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &q_biases[buffer_index];
+    reMapUserBuffer(models, "P1_Q_reshaped_with_bias", "bias:0");
+
+    models["P1_K_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &k_weights[buffer_index];
+    reMapUserBuffer(models, "P1_K_reshaped_with_bias", "weights:0");
+    models["P1_K_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &k_biases[buffer_index];
+    reMapUserBuffer(models, "P1_K_reshaped_with_bias", "bias:0");
+
+    models["P1_V_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &v_weights[buffer_index];
+    reMapUserBuffer(models, "P1_V_reshaped_with_bias", "weights:0");
+    models["P1_V_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &v_biases[buffer_index];
+    reMapUserBuffer(models, "P1_V_reshaped_with_bias", "bias:0");
+
+    models["FC1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &fc1_weights[buffer_index];
+    reMapUserBuffer(models, "FC1_reshaped_with_bias", "weights:0");
+    models["FC1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &fc1_biases[buffer_index];
+    reMapUserBuffer(models, "FC1_reshaped_with_bias", "bias:0");
+
+    models["FC2_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &fc2_weights[buffer_index];
+    reMapUserBuffer(models, "FC2_reshaped_with_bias", "weights:0");
+    models["FC2_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &fc2_biases[buffer_index];
+    reMapUserBuffer(models, "FC2_reshaped_with_bias", "bias:0");
+
+    models["P4_1_reshaped_with_bias"].applicationInputBuffers["weights:0"] = &p4_weights[buffer_index];
+    reMapUserBuffer(models, "P4_1_reshaped_with_bias", "weights:0");
+    models["P4_1_reshaped_with_bias"].applicationInputBuffers["bias:0"] = &p4_biases[buffer_index];
+    reMapUserBuffer(models, "P4_1_reshaped_with_bias", "bias:0");
 }
+
+// might need
+// template <typename T>
+// void resetKV(T* in) {
+//     uint8_t* in_8 = (uint8_t*)in;
+//     T* in_past_keys;
+//     T* in_past_values;
+//     uint32_t* in_key_dims;
+//     uint32_t* in_value_dims;
+//     for (uint64_t i = 0; i < DECODERS; i++) {
+//         in_past_keys =   (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+//         in_past_values = (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+//         in_key_dims = (uint32_t*)(&in_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
+//         in_value_dims = (uint32_t*)(&in_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
+//         for (uint64_t j = 0; j < 4; j++) {
+//             in_key_dims[j]   = 0;
+//             in_value_dims[j] = 0;
+//         }
+//     }
+// }
 
 template <typename T>
 size_t multiReduce(const std::vector<T>& dims) {
@@ -1589,50 +1756,51 @@ void init_dims_uint32_t(std::vector<uint32_t>& vec, uint8_t *ptr, int num) {
     std::cout << "\n";
 }
 
-template <typename T>
-void copyKV(T* in, T* out) {
-    uint8_t* in_8 = (uint8_t*)in;
-    uint8_t* out_8 = (uint8_t*)out;
-    T *in_past_keys, *in_past_values, *out_past_keys, *out_past_values;
-    uint32_t *in_key_dims, *in_value_dims, *out_key_dims, *out_value_dims;
-    std::vector<uint32_t> key_dims_vec;
-    std::vector<uint32_t> val_dims_vec;
-    size_t k_size, v_size;
+// might need
+// template <typename T>
+// void copyKV(T* in, T* out) {
+//     uint8_t* in_8 = (uint8_t*)in;
+//     uint8_t* out_8 = (uint8_t*)out;
+//     T *in_past_keys, *in_past_values, *out_past_keys, *out_past_values;
+//     uint32_t *in_key_dims, *in_value_dims, *out_key_dims, *out_value_dims;
+//     std::vector<uint32_t> key_dims_vec;
+//     std::vector<uint32_t> val_dims_vec;
+//     size_t k_size, v_size;
 
-    for (uint64_t i = 0; i < DECODERS; i++) {
-        /* calculating locations */
-        in_past_keys =   (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
-        in_past_values = (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
-        out_past_keys =   (T*)&out_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
-        out_past_values = (T*)&out_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+//     for (uint64_t i = 0; i < DECODERS; i++) {
+//         /* calculating locations */
+//         in_past_keys =   (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+//         in_past_values = (T*)&in_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
+//         out_past_keys =   (T*)&out_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (1 + 2*i)];
+//         out_past_values = (T*)&out_8[((uint64_t)(4*4)+(MAX_SEQ_LEN * HIDDEN_SIZE * DATASIZE)) * (2 + 2*i)];
 
-        in_key_dims = (uint32_t*)(&in_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
-        in_value_dims = (uint32_t*)(&in_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
-        out_key_dims = (uint32_t*)(&out_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
-        out_value_dims = (uint32_t*)(&out_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
+//         in_key_dims = (uint32_t*)(&in_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
+//         in_value_dims = (uint32_t*)(&in_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
+//         out_key_dims = (uint32_t*)(&out_past_keys[MAX_SEQ_LEN * HIDDEN_SIZE]);
+//         out_value_dims = (uint32_t*)(&out_past_values[MAX_SEQ_LEN * HIDDEN_SIZE]);
 
-        /* copying dims */
-        for (uint64_t j = 0; j < 4; j++) {
-            out_key_dims[j] = in_key_dims[j];
-            out_value_dims[j] = in_value_dims[j];
-        }
+//         /* copying dims */
+//         for (uint64_t j = 0; j < 4; j++) {
+//             out_key_dims[j] = in_key_dims[j];
+//             out_value_dims[j] = in_value_dims[j];
+//         }
 
-        /* ensure KV cache is not empty */
-        assert(in_key_dims[3] != 0);
-        assert(in_value_dims[3] != 0);
+//         /* ensure KV cache is not empty */
+//         assert(in_key_dims[3] != 0);
+//         assert(in_value_dims[3] != 0);
 
-        /* grabbing dims */
-        init_dims_uint32_t(key_dims_vec, (uint8_t*)in_key_dims , 4);
-        init_dims_uint32_t(val_dims_vec, (uint8_t*)in_value_dims , 4);
+//         /* grabbing dims */
+//         init_dims_uint32_t(key_dims_vec, (uint8_t*)in_key_dims , 4);
+//         init_dims_uint32_t(val_dims_vec, (uint8_t*)in_value_dims , 4);
 
-        /* writing data */
-        k_size = multiReduce(key_dims_vec);
-        v_size = multiReduce(val_dims_vec);
-        assert(k_size != 0 && v_size != 0);
-        for (size_t j = 0; j < k_size; j++) {out_past_keys[j] = in_past_keys[j];}
-        for (size_t j = 0; j < v_size; j++) {out_past_values[j] = in_past_values[j];}
-    }
-}
+//         /* writing data */
+//         k_size = multiReduce(key_dims_vec);
+//         v_size = multiReduce(val_dims_vec);
+//         assert(k_size != 0 && v_size != 0);
+//         for (size_t j = 0; j < k_size; j++) {out_past_keys[j] = in_past_keys[j];}
+//         for (size_t j = 0; j < v_size; j++) {out_past_values[j] = in_past_values[j];}
+//     }
+// }
 
 
 // generate mask and position_ids; also iteration_num should first be 0
@@ -1695,7 +1863,7 @@ std::vector<size_t> prepareMask(T* mask, size_t seq_len, size_t iteration_num, b
         mask_shape = {seq_len, seq_len};
         // set mask
         // T lowest = std::numeric_limits<T>::lowest();
-        T lowest = static_cast<T>(LOWEST); // fp16 min
+        T lowest = static_cast<T>(LOWEST);
         // T lowest = (T)(1); // REMOVE LATER
         for (size_t row = 0; row < seq_len; row++) {
             for (size_t col = 0; col < seq_len; col++) {
@@ -1717,7 +1885,7 @@ std::vector<size_t> prepareMask(T* mask, size_t seq_len, size_t iteration_num, b
         }
     }
     else {
-        mask_shape = {seq_len};
+        mask_shape = {1, seq_len};
         // set mask
         for (size_t i = 0; i < seq_len; i++) { mask[i] = 0; }
     }
